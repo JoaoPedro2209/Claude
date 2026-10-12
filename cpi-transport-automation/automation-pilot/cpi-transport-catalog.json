@@ -1,0 +1,1553 @@
+{
+  "id": "cpitransport-<<<TENANT_ID>>>",
+  "technicalName": "cpitransport",
+  "name": "CPI Transport DEV to QAS",
+  "description": "Transporte e deploy de iFlows do Cloud Integration de DEV para QAS, disparado pelo ServiceNow. Endpoints marcados A CONFIRMAR precisam ser validados no SAP Business Accelerator Hub.",
+  "owner": "<<<TENANT_ID>>>",
+  "inputs": [
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:CpiDevCredentials:1",
+      "name": "CpiDevCredentials",
+      "description": "Service key do Process Integration Runtime, plano api, no subaccount DEV (Brasil)",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "owner": null,
+      "version": 1,
+      "keys": {
+        "apiUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo url da service key (plano api)"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo tokenurl da service key"
+        },
+        "clientId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo clientid"
+        },
+        "clientSecret": {
+          "type": "string",
+          "sensitive": true,
+          "description": "Campo clientsecret"
+        }
+      },
+      "values": {
+        "apiUrl": "https://<tenant-dev>.it-cpi<nnn>.cfapps.br10.hana.ondemand.com",
+        "tokenUrl": "https://<subdominio-dev>.authentication.br10.hana.ondemand.com/oauth/token",
+        "clientId": "",
+        "clientSecret": ""
+      },
+      "tags": {}
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+      "name": "CpiQasCredentials",
+      "description": "Service key do Process Integration Runtime, plano api, no subaccount QAS (Brasil)",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "owner": null,
+      "version": 1,
+      "keys": {
+        "apiUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo url da service key (plano api)"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo tokenurl da service key"
+        },
+        "clientId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo clientid"
+        },
+        "clientSecret": {
+          "type": "string",
+          "sensitive": true,
+          "description": "Campo clientsecret"
+        }
+      },
+      "values": {
+        "apiUrl": "https://<tenant-qas>.it-cpi<nnn>.cfapps.br10.hana.ondemand.com",
+        "tokenUrl": "https://<subdominio-qas>.authentication.br10.hana.ondemand.com/oauth/token",
+        "clientId": "",
+        "clientSecret": ""
+      },
+      "tags": {}
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:CasCredentials:1",
+      "name": "CasCredentials",
+      "description": "Service key do Content Agent service, plano standard, no subaccount DEV (Brasil). Nomes exatos dos campos: conferir na service key gerada.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "owner": null,
+      "version": 1,
+      "keys": {
+        "url": {
+          "type": "string",
+          "sensitive": false,
+          "description": "URL da API do Content Agent (campo url ou endpoints da service key)"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "uaa.url + /oauth/token"
+        },
+        "clientId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "uaa.clientid"
+        },
+        "clientSecret": {
+          "type": "string",
+          "sensitive": true,
+          "description": "uaa.clientsecret"
+        }
+      },
+      "values": {
+        "url": "https://<subdominio-dev>.content-agent.cfapps.br10.hana.ondemand.com",
+        "tokenUrl": "https://<subdominio-dev>.authentication.br10.hana.ondemand.com/oauth/token",
+        "clientId": "",
+        "clientSecret": ""
+      },
+      "tags": {}
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:CtmsCredentials:1",
+      "name": "CtmsCredentials",
+      "description": "Service key do Cloud Transport Management, plano standard, no subaccount central de transporte (Brasil)",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "owner": null,
+      "version": 1,
+      "keys": {
+        "uri": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Campo uri"
+        },
+        "tokenUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "uaa.url + /oauth/token"
+        },
+        "clientId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "uaa.clientid"
+        },
+        "clientSecret": {
+          "type": "string",
+          "sensitive": true,
+          "description": "uaa.clientsecret"
+        }
+      },
+      "values": {
+        "uri": "https://transport-service-app-backend.ts.cfapps.br10.hana.ondemand.com",
+        "tokenUrl": "https://<subdominio-tms>.authentication.br10.hana.ondemand.com/oauth/token",
+        "clientId": "",
+        "clientSecret": ""
+      },
+      "tags": {}
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:ServiceNowCredentials:1",
+      "name": "ServiceNowCredentials",
+      "description": "Usuário de integração do ServiceNow para a Table API",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "owner": null,
+      "version": 1,
+      "keys": {
+        "instanceUrl": {
+          "type": "string",
+          "sensitive": false,
+          "description": "URL da instância, sem barra no fim"
+        },
+        "user": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Usuário de integração"
+        },
+        "password": {
+          "type": "string",
+          "sensitive": true,
+          "description": "Senha"
+        }
+      },
+      "values": {
+        "instanceUrl": "https://<instancia>.service-now.com",
+        "user": "",
+        "password": ""
+      },
+      "tags": {}
+    }
+  ],
+  "commands": [
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:ExportContent:1",
+      "name": "ExportContent",
+      "description": "Rota CTMS. Cria uma operação de export no Content Agent service (DEV) e espera a transport request cair na fila do cTMS. ATENÇÃO: os caminhos e o corpo da API do Content Agent NÃO foram confirmados em documentação pública; ajuste exportPath, statusPath e o corpo após validar no SAP Business Accelerator Hub.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "artifactId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do iFlow em DEV"
+        },
+        "version": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Versão do iFlow em DEV (ex.: 1.0.3)"
+        },
+        "packageId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do pacote do iFlow em DEV"
+        },
+        "exportPath": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "A CONFIRMAR no API Hub: caminho relativo da operação de export do Content Agent",
+          "defaultValue": "/CONFIRMAR-NO-API-HUB/export"
+        },
+        "statusPath": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "A CONFIRMAR no API Hub: caminho de status da operação; {id} é trocado pelo ID retornado",
+          "defaultValue": "/CONFIRMAR-NO-API-HUB/export/"
+        },
+        "transportDescription": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Descrição da transport request (use o número do chamado)",
+          "defaultValue": "Automation Pilot"
+        }
+      },
+      "outputKeys": {
+        "operationId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "ID da operação de export"
+        },
+        "transportRequestId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "ID da transport request gerada (campo a confirmar)"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "cas",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CasCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "operationId": "$(.CreateExport.output.body | toObject.id)",
+          "transportRequestId": "$(.WaitExport.output.body | toObject.transportRequestId)"
+        },
+        "executors": [
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "CreateExport",
+            "input": {
+              "url": "$(.cas.url)$(.execution.input.exportPath)",
+              "method": "POST",
+              "headers": "{\"Accept\": \"application/json\", \"Content-Type\": \"application/json\"}",
+              "clientId": "$(.cas.clientId)",
+              "clientSecret": "$(.cas.clientSecret)",
+              "tokenUrl": "$(.cas.tokenUrl)",
+              "timeout": "60",
+              "body": "{\"contentType\": \"CloudIntegration\", \"description\": \"$(.execution.input.transportDescription | toEscapedJson)\", \"content\": [{\"packageId\": \"$(.execution.input.packageId | toEscapedJson)\", \"artifactId\": \"$(.execution.input.artifactId | toEscapedJson)\", \"version\": \"$(.execution.input.version | toEscapedJson)\"}], \"exportMode\": \"MTAR\", \"destination\": \"TransportManagementService\"}"
+            },
+            "description": "POST que cria a operação de export (corpo A CONFIRMAR)",
+            "progressMessage": "Criando export no Content Agent",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.CreateExport.output.status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "200",
+                        "201",
+                        "202"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": {
+              "maxCount": 4,
+              "delay": "15s",
+              "logic": "INCREMENTAL",
+              "applyOnValidation": false,
+              "when": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$([429, 502, 503, 504, -1] | filter(. == $.CreateExport.output.status) | length)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "1"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "repeat": null,
+            "errorMessages": [
+              {
+                "message": "Export recusado pelo Content Agent (HTTP $(.CreateExport.output.status)): $(.CreateExport.output.body)",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.CreateExport.output.status)",
+                          "operator": "NOT_EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "200",
+                            "201",
+                            "202"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          },
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "WaitExport",
+            "input": {
+              "url": "$(.cas.url)$(.execution.input.statusPath)$(.CreateExport.output.body | toObject.id | toUrlEncoded)",
+              "method": "GET",
+              "headers": "{\"Accept\": \"application/json\"}",
+              "clientId": "$(.cas.clientId)",
+              "clientSecret": "$(.cas.clientSecret)",
+              "tokenUrl": "$(.cas.tokenUrl)",
+              "timeout": "30"
+            },
+            "description": "Polling do status da operação (cross-region: 20s x 45 = até 15 min)",
+            "progressMessage": "Aguardando export",
+            "initialDelay": {
+              "interval": "30s",
+              "when": null
+            },
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.WaitExport.output.body | toObject.status | toLowerCase)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "completed",
+                        "succeeded"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": null,
+            "repeat": {
+              "maxCount": 45,
+              "delay": "20s",
+              "failOnMaxCount": true,
+              "until": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$(.WaitExport.output.body | toObject.status | toLowerCase)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "completed",
+                          "succeeded",
+                          "failed",
+                          "error"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "errorMessages": [
+              {
+                "message": "Export terminou com status $(.WaitExport.output.body | toObject.status)",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.WaitExport.output.body | toObject.status | toLowerCase)",
+                          "operator": "EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "failed",
+                            "error"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:ImportQueue:1",
+      "name": "ImportQueue",
+      "description": "Rota CTMS. Importa todas as transport requests importáveis do nó de destino no cTMS e espera a ação terminar. Endpoints da API v2 do cTMS a conferir no SAP Business Accelerator Hub (pacote TmsForCloudPub). Alternativa: o comando nativo ctms-sapcp:ImportAllTransportRequests:1.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "nodeId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID numérico do nó de destino (QAS) no cTMS"
+        },
+        "namedUser": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Usuário registrado no histórico do cTMS",
+          "defaultValue": "automation-pilot"
+        }
+      },
+      "outputKeys": {
+        "actionId": {
+          "type": "string",
+          "sensitive": false,
+          "description": "ID da ação de import"
+        },
+        "importStatus": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Status final da ação"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "tms",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CtmsCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "actionId": "$(.StartImport.output.body | toObject.actionId)",
+          "importStatus": "$(.WaitImport.output.body | toObject.status)"
+        },
+        "executors": [
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "StartImport",
+            "input": {
+              "url": "$(.tms.uri)/v2/nodes/$(.execution.input.nodeId | toUrlEncoded)/transportRequests/importAll",
+              "method": "POST",
+              "headers": "{\"Accept\": \"application/json\", \"Content-Type\": \"application/json\"}",
+              "clientId": "$(.tms.clientId)",
+              "clientSecret": "$(.tms.clientSecret)",
+              "tokenUrl": "$(.tms.tokenUrl)",
+              "timeout": "60",
+              "body": "{\"namedUser\": \"$(.execution.input.namedUser | toEscapedJson)\"}"
+            },
+            "description": "Dispara o import de toda a fila do nó",
+            "progressMessage": "Importando fila no cTMS",
+            "initialDelay": {
+              "interval": "60s",
+              "when": null
+            },
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.StartImport.output.status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "200",
+                        "201",
+                        "202"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": {
+              "maxCount": 4,
+              "delay": "15s",
+              "logic": "INCREMENTAL",
+              "applyOnValidation": false,
+              "when": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$([429, 502, 503, 504, -1] | filter(. == $.StartImport.output.status) | length)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "1"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "repeat": null,
+            "errorMessages": [
+              {
+                "message": "cTMS recusou o import (HTTP $(.StartImport.output.status)): $(.StartImport.output.body)",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.StartImport.output.status)",
+                          "operator": "NOT_EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "200",
+                            "201",
+                            "202"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          },
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "WaitImport",
+            "input": {
+              "url": "$(.tms.uri)/v2/actions/$(.StartImport.output.body | toObject.actionId | toString | toUrlEncoded)",
+              "method": "GET",
+              "headers": "{\"Accept\": \"application/json\"}",
+              "clientId": "$(.tms.clientId)",
+              "clientSecret": "$(.tms.clientSecret)",
+              "tokenUrl": "$(.tms.tokenUrl)",
+              "timeout": "30"
+            },
+            "description": "Polling da ação de import (20s x 45 = até 15 min)",
+            "progressMessage": "Aguardando import",
+            "initialDelay": {
+              "interval": "30s",
+              "when": null
+            },
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.WaitImport.output.body | toObject.status | toLowerCase)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "succeeded",
+                        "warning"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": null,
+            "repeat": {
+              "maxCount": 45,
+              "delay": "20s",
+              "failOnMaxCount": true,
+              "until": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$(.WaitImport.output.body | toObject.status | toLowerCase)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "succeeded",
+                          "warning",
+                          "error",
+                          "fatal"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "errorMessages": [
+              {
+                "message": "Import no cTMS terminou com $(.WaitImport.output.body | toObject.status)",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.WaitImport.output.body | toObject.status | toLowerCase)",
+                          "operator": "EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "error",
+                            "fatal"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
+      "name": "CopyIflowDevToQas",
+      "description": "Rota DIRECT. Baixa a versão informada do iFlow no CPI DEV e cria ou atualiza o iFlow no CPI QAS, tudo pela OData API pública do Cloud Integration. Não usa cTMS. O pacote precisa existir em QAS.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "artifactId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do iFlow"
+        },
+        "version": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Versão do iFlow em DEV (ex.: 1.0.3)"
+        },
+        "packageId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do pacote em QAS (usado só se o iFlow ainda não existir)"
+        }
+      },
+      "outputKeys": {
+        "result": {
+          "type": "array",
+          "sensitive": false,
+          "description": "Linhas de saída do script (OK CREATE|UPDATE ...)"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "dev",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiDevCredentials:1",
+              "inputKey": null
+            }
+          },
+          {
+            "alias": "qas",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "result": "$(.Copy.output.result)"
+        },
+        "executors": [
+          {
+            "execute": "scripts-sapcp:ExecutePythonScript:1",
+            "alias": "Copy",
+            "input": {
+              "script": "import sys, json, base64, urllib.request, urllib.parse, urllib.error, os\nart, ver, pkg = sys.argv[1], sys.argv[2], sys.argv[3]\ndev_secret = sys.stdin.readline().strip()\nqas_secret = sys.stdin.readline().strip()\nE = os.environ\ndev = {\"api\": E[\"DEV_API\"], \"tok\": E[\"DEV_TOKEN_URL\"], \"id\": E[\"DEV_CLIENT_ID\"], \"sec\": dev_secret}\nqas = {\"api\": E[\"QAS_API\"], \"tok\": E[\"QAS_TOKEN_URL\"], \"id\": E[\"QAS_CLIENT_ID\"], \"sec\": qas_secret}\ndef token(c):\n    req = urllib.request.Request(c[\"tok\"], data=b\"grant_type=client_credentials\", method=\"POST\")\n    req.add_header(\"Authorization\", \"Basic \" + base64.b64encode((c[\"id\"] + \":\" + c[\"sec\"]).encode()).decode())\n    req.add_header(\"Content-Type\", \"application/x-www-form-urlencoded\")\n    with urllib.request.urlopen(req, timeout=60) as r:\n        return json.load(r)[\"access_token\"]\ndef call(c, tok, method, path, body=None, accept=\"application/json\"):\n    data = None if body is None else json.dumps(body).encode()\n    req = urllib.request.Request(c[\"api\"].rstrip(\"/\") + path, data=data, method=method)\n    req.add_header(\"Authorization\", \"Bearer \" + tok)\n    req.add_header(\"Accept\", accept)\n    if data is not None:\n        req.add_header(\"Content-Type\", \"application/json\")\n    try:\n        with urllib.request.urlopen(req, timeout=180) as r:\n            return r.status, r.read()\n    except urllib.error.HTTPError as e:\n        return e.code, e.read()\nq = lambda s: urllib.parse.quote(s, safe=\"\")\ntd, tq = token(dev), token(qas)\npath_dev = \"/api/v1/IntegrationDesigntimeArtifacts(Id='%s',Version='%s')\" % (q(art), q(ver))\nst, zipb = call(dev, td, \"GET\", path_dev + \"/$value\", accept=\"application/zip\")\nif st != 200:\n    print(\"ERRO_DOWNLOAD_DEV\", st, zipb[:400].decode(\"utf-8\", \"replace\"))\n    sys.exit(2)\ncontent = base64.b64encode(zipb).decode()\npath_qas = \"/api/v1/IntegrationDesigntimeArtifacts(Id='%s',Version='active')\" % q(art)\nst, meta = call(qas, tq, \"GET\", path_qas)\nif st == 200:\n    name = json.loads(meta).get(\"d\", {}).get(\"Name\", art)\n    st, b = call(qas, tq, \"PUT\", path_qas, {\"Name\": name, \"ArtifactContent\": content})\n    action = \"UPDATE\"\nelse:\n    st, b = call(qas, tq, \"POST\", \"/api/v1/IntegrationDesigntimeArtifacts\",\n                 {\"Name\": art, \"Id\": art, \"PackageId\": pkg, \"ArtifactContent\": content})\n    action = \"CREATE\"\nif st not in (200, 201, 202, 204):\n    print(\"ERRO_UPLOAD_QAS\", action, st, b[:400].decode(\"utf-8\", \"replace\"))\n    sys.exit(3)\nprint(\"OK\", action, art, ver, len(zipb))\n",
+              "parameters": "[\"$(.execution.input.artifactId | toEscapedJson)\", \"$(.execution.input.version | toEscapedJson)\", \"$(.execution.input.packageId | toEscapedJson)\"]",
+              "environment": "{\"DEV_API\": \"$(.dev.apiUrl)\", \"DEV_TOKEN_URL\": \"$(.dev.tokenUrl)\", \"DEV_CLIENT_ID\": \"$(.dev.clientId)\", \"QAS_API\": \"$(.qas.apiUrl)\", \"QAS_TOKEN_URL\": \"$(.qas.tokenUrl)\", \"QAS_CLIENT_ID\": \"$(.qas.clientId)\"}",
+              "stdin": "$(.dev.clientSecret)\n$(.qas.clientSecret)",
+              "timeout": "300"
+            },
+            "description": "Download em DEV e upload em QAS via OData API",
+            "progressMessage": "Copiando iFlow de DEV para QAS",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": null,
+            "autoRetry": {
+              "maxCount": 2,
+              "delay": "30s",
+              "logic": "FIXED",
+              "applyOnValidation": false,
+              "when": null
+            },
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:SetExternalizedParameter:1",
+      "name": "SetExternalizedParameter",
+      "description": "Atualiza um parâmetro externalizado de um iFlow em QAS antes do deploy.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "artifactId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do iFlow"
+        },
+        "parameterKey": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Nome do parâmetro externalizado"
+        },
+        "parameterValue": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Novo valor"
+        },
+        "dataType": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Tipo do parâmetro",
+          "defaultValue": "xsd:string"
+        }
+      },
+      "outputKeys": {
+        "status": {
+          "type": "string",
+          "sensitive": false,
+          "description": "HTTP status"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "qas",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "status": "$(.UpdateParam.output.status | toString)"
+        },
+        "executors": [
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "UpdateParam",
+            "input": {
+              "url": "$(.qas.apiUrl)/api/v1/IntegrationDesigntimeArtifacts(Id=%27$(.execution.input.artifactId | toUrlEncoded)%27,Version=%27active%27)/$links/Configurations(%27$(.execution.input.parameterKey | toUrlEncoded)%27)",
+              "method": "PUT",
+              "headers": "{\"Accept\": \"application/json\", \"Content-Type\": \"application/json\"}",
+              "clientId": "$(.qas.clientId)",
+              "clientSecret": "$(.qas.clientSecret)",
+              "tokenUrl": "$(.qas.tokenUrl)",
+              "timeout": "60",
+              "body": "{\"ParameterValue\": \"$(.execution.input.parameterValue | toEscapedJson)\", \"DataType\": \"$(.execution.input.dataType | toEscapedJson)\"}"
+            },
+            "description": null,
+            "progressMessage": "Atualizando parâmetro externalizado",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.UpdateParam.output.status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "200",
+                        "202",
+                        "204"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": {
+              "maxCount": 4,
+              "delay": "15s",
+              "logic": "INCREMENTAL",
+              "applyOnValidation": false,
+              "when": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$([429, 502, 503, 504, -1] | filter(. == $.UpdateParam.output.status) | length)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "1"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
+      "name": "DeployIntegrationFlow",
+      "description": "Faz deploy da versão ativa do iFlow em QAS e faz polling do status em runtime até STARTED ou ERROR.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "artifactId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do iFlow"
+        }
+      },
+      "outputKeys": {
+        "runtimeStatus": {
+          "type": "string",
+          "sensitive": false,
+          "description": "STARTED ou ERROR"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Versão em runtime"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "qas",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "runtimeStatus": "$(.WaitRuntime.output.body | toObject.d.Status)",
+          "runtimeVersion": "$(.WaitRuntime.output.body | toObject.d.Version)"
+        },
+        "executors": [
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "Deploy",
+            "input": {
+              "url": "$(.qas.apiUrl)/api/v1/DeployIntegrationDesigntimeArtifact?Id=%27$(.execution.input.artifactId | toUrlEncoded)%27&Version=%27active%27",
+              "method": "POST",
+              "headers": "{\"Accept\": \"application/json\"}",
+              "clientId": "$(.qas.clientId)",
+              "clientSecret": "$(.qas.clientSecret)",
+              "tokenUrl": "$(.qas.tokenUrl)",
+              "timeout": "60"
+            },
+            "description": null,
+            "progressMessage": "Disparando deploy em QAS",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.Deploy.output.status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "200",
+                        "202"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": {
+              "maxCount": 4,
+              "delay": "15s",
+              "logic": "INCREMENTAL",
+              "applyOnValidation": false,
+              "when": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$([429, 502, 503, 504, -1] | filter(. == $.Deploy.output.status) | length)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "1"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "repeat": null,
+            "errorMessages": [
+              {
+                "message": "Deploy recusado (HTTP $(.Deploy.output.status)): $(.Deploy.output.body)",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.Deploy.output.status)",
+                          "operator": "NOT_EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "200",
+                            "202"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          },
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "WaitRuntime",
+            "input": {
+              "url": "$(.qas.apiUrl)/api/v1/IntegrationRuntimeArtifacts(%27$(.execution.input.artifactId | toUrlEncoded)%27)",
+              "method": "GET",
+              "headers": "{\"Accept\": \"application/json\"}",
+              "clientId": "$(.qas.clientId)",
+              "clientSecret": "$(.qas.clientSecret)",
+              "tokenUrl": "$(.qas.tokenUrl)",
+              "timeout": "30",
+              "successResponseCodes": "[\"200\", \"404\"]"
+            },
+            "description": "Polling do runtime (20s x 30 = até 10 min); 404 no início é normal",
+            "progressMessage": "Aguardando o iFlow subir",
+            "initialDelay": {
+              "interval": "45s",
+              "when": null
+            },
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.WaitRuntime.output.body | toObject.d.Status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "STARTED"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": null,
+            "repeat": {
+              "maxCount": 30,
+              "delay": "20s",
+              "failOnMaxCount": true,
+              "until": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$(.WaitRuntime.output.body | toObject.d.Status)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "STARTED",
+                          "ERROR"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "errorMessages": [
+              {
+                "message": "iFlow $(.execution.input.artifactId) ficou em ERROR em QAS. Veja o Monitor do CPI.",
+                "when": {
+                  "semantic": "OR",
+                  "conditions": [
+                    {
+                      "semantic": "OR",
+                      "cases": [
+                        {
+                          "expression": "$(.WaitRuntime.output.body | toObject.d.Status)",
+                          "operator": "EQUALS",
+                          "semantic": "OR",
+                          "values": [
+                            "ERROR"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+      "name": "UpdateServiceNowTicket",
+      "description": "Atualiza o chamado no ServiceNow pela Table API (PATCH) com o resultado do transporte.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "table": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Tabela do chamado no ServiceNow",
+          "defaultValue": "sc_req_item"
+        },
+        "sysId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "sys_id do registro do chamado (enviado pelo Flow Designer)"
+        },
+        "status": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Resultado: SUCCESS ou FAILED"
+        },
+        "message": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Texto que vai para as work notes"
+        }
+      },
+      "outputKeys": {
+        "httpStatus": {
+          "type": "string",
+          "sensitive": false,
+          "description": "HTTP status da Table API"
+        }
+      },
+      "configuration": {
+        "values": [
+          {
+            "alias": "snow",
+            "valueFrom": {
+              "inputReference": "cpitransport-<<<TENANT_ID>>>:ServiceNowCredentials:1",
+              "inputKey": null
+            }
+          }
+        ],
+        "output": {
+          "httpStatus": "$(.Patch.output.status | toString)"
+        },
+        "executors": [
+          {
+            "execute": "http-sapcp:HttpRequest:1",
+            "alias": "Patch",
+            "input": {
+              "url": "$(.snow.instanceUrl)/api/now/table/$(.execution.input.table | toUrlEncoded)/$(.execution.input.sysId | toUrlEncoded)",
+              "method": "PATCH",
+              "headers": "{\"Accept\": \"application/json\", \"Content-Type\": \"application/json\"}",
+              "user": "$(.snow.user)",
+              "password": "$(.snow.password)",
+              "timeout": "60",
+              "body": "{\"u_cpi_transport_status\": \"$(.execution.input.status | toEscapedJson)\", \"work_notes\": \"$(.execution.input.message | toEscapedJson)\"}"
+            },
+            "description": null,
+            "progressMessage": "Atualizando o chamado no ServiceNow",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.Patch.output.status)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "200"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "autoRetry": {
+              "maxCount": 4,
+              "delay": "15s",
+              "logic": "INCREMENTAL",
+              "applyOnValidation": false,
+              "when": {
+                "semantic": "OR",
+                "conditions": [
+                  {
+                    "semantic": "OR",
+                    "cases": [
+                      {
+                        "expression": "$([429, 502, 503, 504, -1] | filter(. == $.Patch.output.status) | length)",
+                        "operator": "EQUALS",
+                        "semantic": "OR",
+                        "values": [
+                          "1"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:TransportToQas:1",
+      "name": "TransportToQas",
+      "description": "Orquestrador chamado pelo ServiceNow: leva um iFlow de DEV para QAS (rota CTMS ou DIRECT), faz deploy e devolve o resultado ao chamado.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "artifactId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do iFlow"
+        },
+        "version": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Versão do iFlow em DEV"
+        },
+        "packageId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID técnico do pacote"
+        },
+        "route": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "CTMS (Content Agent + cTMS) ou DIRECT (OData API, sem cTMS)",
+          "defaultValue": "DIRECT",
+          "allowedValues": [
+            "CTMS",
+            "DIRECT"
+          ]
+        },
+        "qasNodeId": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "ID do nó de QAS no cTMS (só rota CTMS)",
+          "defaultValue": "0"
+        },
+        "ticketNumber": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "Número do chamado (ex.: RITM0012345), usado como correlationId"
+        },
+        "ticketSysId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "sys_id do chamado no ServiceNow"
+        },
+        "ticketTable": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Tabela do chamado",
+          "defaultValue": "sc_req_item"
+        }
+      },
+      "outputKeys": {
+        "runtimeStatus": {
+          "type": "string",
+          "sensitive": false,
+          "description": "Status final do iFlow em QAS"
+        }
+      },
+      "configuration": {
+        "values": [],
+        "output": {
+          "runtimeStatus": "$(.Deploy.output.runtimeStatus)"
+        },
+        "executors": [
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:ExportContent:1",
+            "alias": "Export",
+            "input": {
+              "artifactId": "$(.execution.input.artifactId)",
+              "version": "$(.execution.input.version)",
+              "packageId": "$(.execution.input.packageId)",
+              "transportDescription": "$(.execution.input.ticketNumber)"
+            },
+            "description": null,
+            "progressMessage": "Rota CTMS: export no Content Agent",
+            "initialDelay": null,
+            "pause": null,
+            "when": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.execution.input.route)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "CTMS"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          },
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:ImportQueue:1",
+            "alias": "Import",
+            "input": {
+              "nodeId": "$(.execution.input.qasNodeId)"
+            },
+            "description": null,
+            "progressMessage": "Rota CTMS: import no nó de QAS",
+            "initialDelay": null,
+            "pause": null,
+            "when": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.execution.input.route)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "CTMS"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          },
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
+            "alias": "Copy",
+            "input": {
+              "artifactId": "$(.execution.input.artifactId)",
+              "version": "$(.execution.input.version)",
+              "packageId": "$(.execution.input.packageId)"
+            },
+            "description": null,
+            "progressMessage": "Rota DIRECT: cópia DEV para QAS",
+            "initialDelay": null,
+            "pause": null,
+            "when": {
+              "semantic": "OR",
+              "conditions": [
+                {
+                  "semantic": "OR",
+                  "cases": [
+                    {
+                      "expression": "$(.execution.input.route)",
+                      "operator": "EQUALS",
+                      "semantic": "OR",
+                      "values": [
+                        "DIRECT"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          },
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
+            "alias": "Deploy",
+            "input": {
+              "artifactId": "$(.execution.input.artifactId)"
+            },
+            "description": null,
+            "progressMessage": "Deploy em QAS",
+            "initialDelay": {
+              "interval": "30s",
+              "when": null
+            },
+            "pause": null,
+            "when": null,
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          },
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+            "alias": "CloseTicket",
+            "input": {
+              "table": "$(.execution.input.ticketTable)",
+              "sysId": "$(.execution.input.ticketSysId)",
+              "status": "SUCCESS",
+              "message": "Automation Pilot: iFlow $(.execution.input.artifactId) v$(.execution.input.version) em QAS com status $(.Deploy.output.runtimeStatus) (rota $(.execution.input.route))."
+            },
+            "description": null,
+            "progressMessage": "Fechando o ciclo no ServiceNow",
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    },
+    {
+      "id": "cpitransport-<<<TENANT_ID>>>:ReportFailureToServiceNow:1",
+      "name": "ReportFailureToServiceNow",
+      "description": "Grava a falha no chamado. Disparado pelo flow do ServiceNow quando a execução de TransportToQas termina em FAILED.",
+      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "version": 1,
+      "inputKeys": {
+        "ticketSysId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "sys_id do chamado"
+        },
+        "ticketTable": {
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "description": "Tabela do chamado",
+          "defaultValue": "sc_req_item"
+        },
+        "executionId": {
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "description": "ID da execução que falhou"
+        }
+      },
+      "outputKeys": {
+        "httpStatus": {
+          "type": "string",
+          "sensitive": false,
+          "description": "HTTP status da Table API"
+        }
+      },
+      "configuration": {
+        "values": [],
+        "output": {
+          "httpStatus": "$(.Report.output.httpStatus)"
+        },
+        "executors": [
+          {
+            "execute": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+            "alias": "Report",
+            "input": {
+              "table": "$(.execution.input.ticketTable)",
+              "sysId": "$(.execution.input.ticketSysId)",
+              "status": "FAILED",
+              "message": "Automation Pilot: transporte falhou. Execução $(.execution.input.executionId). Abra o Automation Pilot para ver o passo com erro."
+            },
+            "description": null,
+            "progressMessage": null,
+            "initialDelay": null,
+            "pause": null,
+            "when": null,
+            "validate": null,
+            "autoRetry": null,
+            "repeat": null,
+            "errorMessages": [],
+            "dryRun": null
+          }
+        ],
+        "listeners": []
+      },
+      "tags": {
+        "scenario": "cpi-dev-to-qas"
+      }
+    }
+  ]
+}
