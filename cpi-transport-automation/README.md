@@ -48,13 +48,15 @@ Cada chamada cruza o Atlântico duas vezes, e o fluxo faz dezenas delas entre to
 | `timeout` dos passos HTTP de escrita (POST, PUT, PATCH) | 60 s | 5 s | Deploy e export respondem devagar; 5 s estoura com latência transatlântica |
 | `timeout` dos passos HTTP de leitura (polling) | 30 s | 5 s | Margem para o token OAuth mais a resposta |
 | `autoRetry` | 4 tentativas, 15 s crescentes, só em 429, 502, 503, 504 e falha de rede | Nenhum | Oscilação de rede entre regiões sem repetir erro de negócio |
-| `ExportContent` → `WaitExport` | Espera inicial 30 s; depois a cada 20 s, até 45 vezes (15 min) | — | Montagem do MTAR e entrega na fila |
+| `ExportContent` → `WaitExport` | Espera inicial 30 s; depois a cada 30 s, até 30 vezes (15 min) | — | Montagem do MTAR e entrega na fila |
 | `ImportQueue` → `StartImport` | Espera inicial 60 s | — | Dá tempo da request aparecer na fila depois do export |
-| `ImportQueue` → `WaitImport` | 30 s, depois a cada 20 s até 45 vezes (15 min) | — | Import assíncrono do cTMS |
+| `ImportQueue` → `WaitImport` | 30 s, depois a cada 30 s até 30 vezes (15 min) | — | Import assíncrono do cTMS |
 | `CopyIflowDevToQas` (script) | `timeout` 300 s; 2 novas tentativas a cada 30 s | 60 s | Download e upload do .zip em base64 |
 | `TransportToQas` → antes do deploy | 30 s | — | QAS precisa registrar a nova versão antes do deploy |
-| `DeployIntegrationFlow` → `WaitRuntime` | 45 s, depois a cada 20 s até 30 vezes (10 min); 404 aceito no início | — | O artefato só aparece em runtime alguns segundos depois do deploy |
+| `DeployIntegrationFlow` → `WaitRuntime` | 1 min, depois a cada 30 s até 20 vezes (10 min); 404 aceito no início | — | O artefato só aparece em runtime alguns segundos depois do deploy |
 | Loop do flow no ServiceNow (10.6) | 60 s, até 60 vezes (1 hora) | — | Cobre os cerca de 45 minutos do pior caso da rota CTMS |
+
+As esperas (`initialDelay`, `repeat.delay`, `autoRetry.delay`) só aceitam 5s, 10s, 15s, 30s, 1m, 2m ou 3m. Ao ajustar os tempos, use só esses valores e mexa no `maxCount` para mudar o total.
 
 No pior caso a rota CTMS soma cerca de 45 minutos antes de falhar por tempo; a DIRECT, cerca de 30 (contando as duas novas tentativas do script). Depois dos testes da Fase 6, ajuste `maxCount` pelo tempo real medido.
 

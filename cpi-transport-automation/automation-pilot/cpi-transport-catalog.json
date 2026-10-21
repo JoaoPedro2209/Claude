@@ -391,8 +391,8 @@
             },
             "autoRetry": null,
             "repeat": {
-              "maxCount": 45,
-              "delay": "20s",
+              "maxCount": 30,
+              "delay": "30s",
               "failOnMaxCount": true,
               "until": {
                 "semantic": "OR",
@@ -513,7 +513,7 @@
             "description": "Dispara o import de toda a fila do nó",
             "progressMessage": "Importando fila no cTMS",
             "initialDelay": {
-              "interval": "60s",
+              "interval": "1m",
               "when": null
             },
             "pause": null,
@@ -631,8 +631,8 @@
             },
             "autoRetry": null,
             "repeat": {
-              "maxCount": 45,
-              "delay": "20s",
+              "maxCount": 30,
+              "delay": "30s",
               "failOnMaxCount": true,
               "until": {
                 "semantic": "OR",
@@ -1048,7 +1048,7 @@
             "description": "Polling do runtime (20s x 30 = até 10 min); 404 no início é normal",
             "progressMessage": "Aguardando o iFlow subir",
             "initialDelay": {
-              "interval": "45s",
+              "interval": "1m",
               "when": null
             },
             "pause": null,
@@ -1073,8 +1073,8 @@
             },
             "autoRetry": null,
             "repeat": {
-              "maxCount": 30,
-              "delay": "20s",
+              "maxCount": 20,
+              "delay": "30s",
               "failOnMaxCount": true,
               "until": {
                 "semantic": "OR",
