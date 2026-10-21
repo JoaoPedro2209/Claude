@@ -1255,7 +1255,7 @@
     {
       "id": "cpitransport-<<<TENANT_ID>>>:TransportToQas:1",
       "name": "TransportToQas",
-      "description": "Orquestrador chamado pelo ServiceNow: leva um iFlow de DEV para QAS (rota CTMS ou DIRECT), faz deploy e devolve o resultado ao chamado.",
+      "description": "Orquestrador chamado pelo ServiceNow: leva um iFlow de DEV para QAS (rota CTMS, CTMS_IMPORT ou DIRECT), faz deploy e devolve o resultado ao chamado.",
       "catalog": "cpitransport-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
@@ -1281,10 +1281,11 @@
           "type": "string",
           "sensitive": false,
           "required": false,
-          "description": "CTMS (Content Agent + cTMS) ou DIRECT (OData API, sem cTMS)",
+          "description": "CTMS (export pelo Content Agent + import no cTMS), CTMS_IMPORT (dev já clicou em Transport; só import no cTMS) ou DIRECT (OData API, sem cTMS)",
           "defaultValue": "DIRECT",
           "allowedValues": [
             "CTMS",
+            "CTMS_IMPORT",
             "DIRECT"
           ]
         },
@@ -1386,7 +1387,8 @@
                       "operator": "EQUALS",
                       "semantic": "OR",
                       "values": [
-                        "CTMS"
+                        "CTMS",
+                        "CTMS_IMPORT"
                       ]
                     }
                   ]

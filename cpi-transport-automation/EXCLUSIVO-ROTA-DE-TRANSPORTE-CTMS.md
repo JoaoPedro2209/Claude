@@ -76,19 +76,16 @@ Use a key do Passo 1. Anote o `id` do nó de QAS.
 
 ## Passo 4 — Automation Pilot
 
-### 4.1 Ajuste no catálogo antes de importar
+### 4.1 Rota CTMS_IMPORT (já incluída no catálogo)
 
-O catálogo atual, na rota `CTMS`, começa pelo export automático, que ainda não está confirmado. Para o seu modelo (dev clica em Transport), o orquestrador precisa pular o export e fazer só import e deploy. Faça duas edições no `cpi-transport-catalog.json` antes de importar:
+O catálogo já vem com a rota `CTMS_IMPORT`, feita para o seu modelo (o dev clica em Transport). Não precisa editar o JSON antes de importar.
 
-1. No comando `TransportToQas`, input `route`: em `allowedValues`, acrescente `"CTMS_IMPORT"`.
-2. No mesmo comando, no passo de alias `Import`: na condição `when`, troque `"values": ["CTMS"]` por `"values": ["CTMS", "CTMS_IMPORT"]`.
-
-Com isso, `route = CTMS_IMPORT` roda só `Import` → `Deploy` → `CloseTicket`. O passo `Export` continua só para `route = CTMS`.
+Com `route = CTMS_IMPORT`, o orquestrador `TransportToQas` roda só `Import` → `Deploy` → `CloseTicket`. O passo `Export` continua só para `route = CTMS`, que fica reservada para quando a API de export do Content Agent for confirmada.
 
 ### 4.2 Assinatura e importação
 
 1. No subaccount OPS (Europa), confirme a assinatura do Automation Pilot e a sua role de desenvolvedor.
-2. **My Catalogs → Import** e cole o JSON ajustado.
+2. **My Catalogs → Import** e cole o conteúdo do `cpi-transport-catalog.json`.
 3. Os comandos importados ficam em rascunho. Só libere depois do Passo 6.
 
 ### 4.3 Inputs a preencher
