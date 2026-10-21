@@ -359,7 +359,7 @@ Atenção ao `tokenUrl`: no plano `api` do CPI ele já vem pronto (`tokenurl`); 
 O ServiceNow precisa de uma credencial própria para chamar a API de execuções.
 
 1. No Automation Pilot, abra a área de **Service Accounts** (o rótulo pode variar por versão) e crie `servicenow-trigger` com autenticação Basic.
-2. Dê a ele só a permissão de disparar execuções do catálogo `cpitransport`, se o tenant permitir esse recorte.
+2. Dê a ele só a permissão de disparar execuções do catálogo `cpitrans`, se o tenant permitir esse recorte.
 3. Guarde usuário e senha; eles vão para o Credential Alias do ServiceNow (10.4).
 
 A API de disparo:
@@ -368,7 +368,7 @@ A API de disparo:
 curl -s -X POST -u "$AP_USER:$AP_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
-    "commandId": "cpitransport-<TENANT_ID>:TransportToQas:1",
+    "commandId": "cpitrans-<TENANT_ID>:TransportToQas:1",
     "inputValues": {
       "artifactId": "IF_Pedidos_SAP_para_Banco",
       "version": "1.0.3",
@@ -457,7 +457,7 @@ REST step (exige Integration Hub; confirme o licenciamento):
 
 ```json
 {
-  "commandId": "cpitransport-<TENANT_ID>:TransportToQas:1",
+  "commandId": "cpitrans-<TENANT_ID>:TransportToQas:1",
   "inputValues": {
     "artifactId": "{{artifact_id}}",
     "version": "{{version}}",
@@ -544,7 +544,7 @@ Use os mesmos nomes do formulário até a payload. O orquestrador chama-se `Tran
 
 ```json
 {
-  "commandId": "cpitransport-<TENANT_ID>:TransportToQas:1",
+  "commandId": "cpitrans-<TENANT_ID>:TransportToQas:1",
   "inputValues": {
     "artifactId": "{{artifact_id}}",
     "version": "{{version}}",

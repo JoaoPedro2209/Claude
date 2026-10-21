@@ -1,15 +1,15 @@
 {
-  "id": "cpitransport-<<<TENANT_ID>>>",
-  "technicalName": "cpitransport",
+  "id": "cpitrans-<<<TENANT_ID>>>",
+  "technicalName": "cpitrans",
   "name": "CPI Transport DEV to QAS",
   "description": "Transporte e deploy de iFlows do Cloud Integration de DEV para QAS, disparado pelo ServiceNow. Endpoints marcados A CONFIRMAR precisam ser validados no SAP Business Accelerator Hub.",
   "owner": "<<<TENANT_ID>>>",
   "inputs": [
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:CpiDevCredentials:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:CpiDevCredentials:1",
       "name": "CpiDevCredentials",
       "description": "Service key do Process Integration Runtime, plano api, no subaccount DEV (Brasil)",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "owner": null,
       "version": 1,
       "keys": {
@@ -43,10 +43,10 @@
       "tags": {}
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:CpiQasCredentials:1",
       "name": "CpiQasCredentials",
       "description": "Service key do Process Integration Runtime, plano api, no subaccount QAS (Brasil)",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "owner": null,
       "version": 1,
       "keys": {
@@ -80,10 +80,10 @@
       "tags": {}
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:CasCredentials:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:CasCredentials:1",
       "name": "CasCredentials",
       "description": "Service key do Content Agent service, plano standard, no subaccount DEV (Brasil). Nomes exatos dos campos: conferir na service key gerada.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "owner": null,
       "version": 1,
       "keys": {
@@ -117,10 +117,10 @@
       "tags": {}
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:CtmsCredentials:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:CtmsCredentials:1",
       "name": "CtmsCredentials",
       "description": "Service key do Cloud Transport Management, plano standard, no subaccount central de transporte (Brasil)",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "owner": null,
       "version": 1,
       "keys": {
@@ -154,10 +154,10 @@
       "tags": {}
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:ServiceNowCredentials:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:ServiceNowCredentials:1",
       "name": "ServiceNowCredentials",
       "description": "Usuário de integração do ServiceNow para a Table API",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "owner": null,
       "version": 1,
       "keys": {
@@ -187,10 +187,10 @@
   ],
   "commands": [
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:ExportContent:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:ExportContent:1",
       "name": "ExportContent",
       "description": "Rota CTMS. Cria uma operação de export no Content Agent service (DEV) e espera a transport request cair na fila do cTMS. ATENÇÃO: os caminhos e o corpo da API do Content Agent NÃO foram confirmados em documentação pública; ajuste exportPath, statusPath e o corpo após validar no SAP Business Accelerator Hub.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "artifactId": {
@@ -250,7 +250,7 @@
           {
             "alias": "cas",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CasCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CasCredentials:1",
               "inputKey": null
             }
           }
@@ -450,10 +450,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:ImportQueue:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:ImportQueue:1",
       "name": "ImportQueue",
       "description": "Rota CTMS. Importa todas as transport requests importáveis do nó de destino no cTMS e espera a ação terminar. Endpoints da API v2 do cTMS a conferir no SAP Business Accelerator Hub (pacote TmsForCloudPub). Alternativa: o comando nativo ctms-sapcp:ImportAllTransportRequests:1.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "nodeId": {
@@ -487,7 +487,7 @@
           {
             "alias": "tms",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CtmsCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CtmsCredentials:1",
               "inputKey": null
             }
           }
@@ -690,10 +690,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
       "name": "CopyIflowDevToQas",
       "description": "Rota DIRECT. Baixa a versão informada do iFlow no CPI DEV e cria ou atualiza o iFlow no CPI QAS, tudo pela OData API pública do Cloud Integration. Não usa cTMS. O pacote precisa existir em QAS.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "artifactId": {
@@ -727,14 +727,14 @@
           {
             "alias": "dev",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiDevCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CpiDevCredentials:1",
               "inputKey": null
             }
           },
           {
             "alias": "qas",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CpiQasCredentials:1",
               "inputKey": null
             }
           }
@@ -778,10 +778,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:SetExternalizedParameter:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:SetExternalizedParameter:1",
       "name": "SetExternalizedParameter",
       "description": "Atualiza um parâmetro externalizado de um iFlow em QAS antes do deploy.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "artifactId": {
@@ -822,7 +822,7 @@
           {
             "alias": "qas",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CpiQasCredentials:1",
               "inputKey": null
             }
           }
@@ -905,10 +905,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
       "name": "DeployIntegrationFlow",
       "description": "Faz deploy da versão ativa do iFlow em QAS e faz polling do status em runtime até STARTED ou ERROR.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "artifactId": {
@@ -935,7 +935,7 @@
           {
             "alias": "qas",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:CpiQasCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:CpiQasCredentials:1",
               "inputKey": null
             }
           }
@@ -1129,10 +1129,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
       "name": "UpdateServiceNowTicket",
       "description": "Atualiza o chamado no ServiceNow pela Table API (PATCH) com o resultado do transporte.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "table": {
@@ -1173,7 +1173,7 @@
           {
             "alias": "snow",
             "valueFrom": {
-              "inputReference": "cpitransport-<<<TENANT_ID>>>:ServiceNowCredentials:1",
+              "inputReference": "cpitrans-<<<TENANT_ID>>>:ServiceNowCredentials:1",
               "inputKey": null
             }
           }
@@ -1253,10 +1253,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:TransportToQas:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:TransportToQas:1",
       "name": "TransportToQas",
       "description": "Orquestrador chamado pelo ServiceNow: leva um iFlow de DEV para QAS (rota CTMS, CTMS_IMPORT ou DIRECT), faz deploy e devolve o resultado ao chamado.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "artifactId": {
@@ -1330,7 +1330,7 @@
         },
         "executors": [
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:ExportContent:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:ExportContent:1",
             "alias": "Export",
             "input": {
               "artifactId": "$(.execution.input.artifactId)",
@@ -1367,7 +1367,7 @@
             "dryRun": null
           },
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:ImportQueue:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:ImportQueue:1",
             "alias": "Import",
             "input": {
               "nodeId": "$(.execution.input.qasNodeId)"
@@ -1402,7 +1402,7 @@
             "dryRun": null
           },
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:CopyIflowDevToQas:1",
             "alias": "Copy",
             "input": {
               "artifactId": "$(.execution.input.artifactId)",
@@ -1438,7 +1438,7 @@
             "dryRun": null
           },
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:DeployIntegrationFlow:1",
             "alias": "Deploy",
             "input": {
               "artifactId": "$(.execution.input.artifactId)"
@@ -1458,7 +1458,7 @@
             "dryRun": null
           },
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
             "alias": "CloseTicket",
             "input": {
               "table": "$(.execution.input.ticketTable)",
@@ -1485,10 +1485,10 @@
       }
     },
     {
-      "id": "cpitransport-<<<TENANT_ID>>>:ReportFailureToServiceNow:1",
+      "id": "cpitrans-<<<TENANT_ID>>>:ReportFailureToServiceNow:1",
       "name": "ReportFailureToServiceNow",
       "description": "Grava a falha no chamado. Disparado pelo flow do ServiceNow quando a execução de TransportToQas termina em FAILED.",
-      "catalog": "cpitransport-<<<TENANT_ID>>>",
+      "catalog": "cpitrans-<<<TENANT_ID>>>",
       "version": 1,
       "inputKeys": {
         "ticketSysId": {
@@ -1525,7 +1525,7 @@
         },
         "executors": [
           {
-            "execute": "cpitransport-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
+            "execute": "cpitrans-<<<TENANT_ID>>>:UpdateServiceNowTicket:1",
             "alias": "Report",
             "input": {
               "table": "$(.execution.input.ticketTable)",

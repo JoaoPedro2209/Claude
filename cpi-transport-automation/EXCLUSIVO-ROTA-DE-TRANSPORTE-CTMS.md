@@ -94,6 +94,8 @@ Com `route = CTMS_IMPORT`, o orquestrador `TransportToQas` roda só `Import` →
 2. **My Catalogs → Import** e cole o conteúdo do `cpi-transport-catalog.json`.
 3. Os comandos importados ficam em rascunho. Só libere depois do Passo 6.
 
+Se a tela pedir para criar o catálogo antes, use **Technical Name** `cpitrans` (o limite é 10 caracteres). No seu tenant isso vira o ID `cpitrans-T006887R4`, o mesmo do arquivo.
+
 ### 4.3 Inputs a preencher
 
 | Input | Vem de | Preencher agora? |
@@ -159,7 +161,7 @@ REST step (Integration Hub): alias `AutomationPilot`, `POST /api/v1/executions`,
 
 ```json
 {
-  "commandId": "cpitransport-<TENANT_ID>:TransportToQas:1",
+  "commandId": "cpitrans-T006887R4:TransportToQas:1",
   "inputValues": {
     "artifactId": "{{artifact_id}}",
     "version": "{{version}}",
