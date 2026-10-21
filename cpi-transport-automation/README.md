@@ -3,6 +3,8 @@
 Versão de 7 de outubro de 2026 · João Pedro
 
 > Catálogo do Automation Pilot: [`automation-pilot/cpi-transport-catalog.json`](automation-pilot/cpi-transport-catalog.json)
+>
+> Já usa a rota de transporte do cTMS? Veja o guia exclusivo: [`EXCLUSIVO-ROTA-DE-TRANSPORTE-CTMS.md`](EXCLUSIVO-ROTA-DE-TRANSPORTE-CTMS.md)
 
 Manual de provisionamento para levar um iFlow do Cloud Integration DEV para QAS automaticamente: o desenvolvedor abre um chamado no ServiceNow, e o SAP Automation Pilot faz o transporte, o deploy e devolve o resultado ao chamado. Produção fica fora desta fase. Siga as fases 0 a 6 na ordem.
 
