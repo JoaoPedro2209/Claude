@@ -14,14 +14,20 @@ Nesta fase o desenvolvedor ainda clica em **Transport** no CPI, como já faz. A 
 
 ## O que você já tem e não precisa recriar
 
-| Item | Onde | Como conferir |
+O seu desenho é **centralizado**: a configuração de transporte fica no subaccount do cTMS, não no DEV. É um modelo válido e já funciona.
+
+| Item | Onde | Situação |
 | --- | --- | --- |
-| Destinations `ContentAssemblyService`, `CloudIntegration` e `TransportManagementService` (com `sourceSystemId`) | Subaccount DEV | O transporte manual de hoje funciona |
-| Settings → Transport apontando para o cTMS | Integration Suite DEV | Check Configuration com sucesso |
+| Destination `TransportManagementService` (com `sourceSystemId`) | Subaccount do cTMS | Encontrada lá. Não existe no DEV, e não precisa existir |
+| Content Agent que faz o export | Subaccount onde ele está assinado hoje | Encontrado |
+| Destinations `ContentAssemblyService` e `CloudIntegration` do lado do export | Provavelmente no mesmo subaccount do Content Agent | A conferir; não estão no DEV |
+| Settings → Transport apontando para o cTMS | Integration Suite DEV | Check Configuration mostra o que está em uso |
 | Content Agent plano application e destination `CloudIntegration` | Subaccount QAS | O import de hoje grava o conteúdo em QAS |
 | Destination para o QAS, nós DEV e QAS, rota DEV → QAS | Subaccount do cTMS | A request aparece na fila de QAS depois do clique |
 
-Se o transporte manual funciona hoje, tudo isso está certo. Não mexa nessas configurações.
+Se o transporte manual funciona hoje, tudo isso está certo. **Não crie destinations no DEV:** uma segunda `TransportManagementService` com outro `sourceSystemId` pode mandar o export para outra fila e quebrar o que funciona.
+
+Para a rota `CTMS_IMPORT` nada disso pesa: o Automation Pilot só fala com o cTMS (import) e com o QAS (deploy). As destinations do lado do export só voltam a importar quando a API de export do Content Agent for confirmada.
 
 ## O que falta criar
 
@@ -95,7 +101,7 @@ Com `route = CTMS_IMPORT`, o orquestrador `TransportToQas` roda só `Import` →
 | `CtmsCredentials` | Key do Passo 1: `uri`, token URL, client ID, secret | Sim |
 | `CpiQasCredentials` | `key-pi-api-qas` do Passo 2 | Sim |
 | `ServiceNowCredentials` | Usuário de integração do Passo 5.2 | Sim |
-| `CasCredentials` | Content Agent DEV | Não; só quando o export automático for confirmado |
+| `CasCredentials` | Content Agent que faz o export (onde estiver assinado) | Não; só quando o export automático for confirmado |
 | `CpiDevCredentials` | Plano api em DEV | Não; só serve à rota DIRECT |
 
 Todas as keys do Brasil têm o código da região Brasil no domínio. Confira o subdomínio de cada URL contra o subaccount de origem antes de salvar; colar a key de um ambiente no input de outro é o erro mais comum.
