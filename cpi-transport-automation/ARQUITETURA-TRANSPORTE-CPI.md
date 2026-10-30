@@ -1,6 +1,8 @@
 # Arquitetura — Transporte automatizado de iFlows do SAP Integration Suite
 
-**Documento de arquitetura · versão 1.0 · 29 de outubro de 2026 · Autor: João Pedro (SAP Basis / BTP)**
+**Documento de arquitetura · versão 1.1 · 29 de outubro de 2026 · Autor: João Pedro (SAP Basis / BTP)**
+
+> **Revisão 1.1:** as telas do Hub de Arquitetura são um cardápio de estilos de conexão com o ServiceNow, não requisitos obrigatórios; esta solução **escolhe** o estilo OAuth 2.0 com JWT assinado por certificado. A escolha do CPI como orquestrador passa a se apoiar em governança, papel de cada produto e residência de dados. A implementação completa está em [`cpi-iflows/IMPLEMENTACAO-CPI.md`](cpi-iflows/IMPLEMENTACAO-CPI.md).
 
 Status: **proposta para revisão** com Arquitetura e Segurança da Informação.
 
@@ -81,14 +83,16 @@ Escopo desta versão: **DEV → QAS**. Produção está desenhada na seção 14 
 | RF-04 | Falhas não podem fechar o chamado como sucesso |
 | RF-05 | A solução não pode importar requests que não pertençam ao chamado |
 
-### 3.2 Requisitos do padrão do banco (Hub de Arquitetura)
+### 3.2 Estilo de conexão escolhido (Hub de Arquitetura)
+
+O Hub de Arquitetura lista estilos de conexão com as APIs do ServiceNow. Esta solução adota o estilo **OAuth 2.0 com JWT assinado por certificado** e as boas práticas que o acompanham:
 
 | ID | Requisito | Origem |
 | --- | --- | --- |
-| RS-01 | Integração com o ServiceNow via **OAuth 2.0, grant `urn:ietf:params:oauth:grant-type:jwt-bearer`**, com JWT assinado por certificado X.509 (RSA/ECDSA) | Hub de Arquitetura |
-| RS-02 | Cliente OAuth identificado por **client_id e certificado**; chave pública registrada no servidor de autorização | Hub de Arquitetura |
-| RS-03 | **Access token de curta duração**, com escopos restritos | Hub de Arquitetura |
-| RS-04 | **Chaves privadas e certificados em cofre de segredos / HSM**, com controle de acesso e auditoria | Hub de Arquitetura |
+| RS-01 | Integração com o ServiceNow via **OAuth 2.0, grant `urn:ietf:params:oauth:grant-type:jwt-bearer`**, com JWT assinado por certificado X.509 (RSA/ECDSA) | Estilo escolhido do Hub de Arquitetura |
+| RS-02 | Cliente OAuth identificado por **client_id e certificado**; chave pública registrada no servidor de autorização | Estilo escolhido do Hub de Arquitetura |
+| RS-03 | **Access token de curta duração**, com escopos restritos | Estilo escolhido do Hub de Arquitetura |
+| RS-04 | **Chaves privadas e certificados em cofre de segredos / HSM**, com controle de acesso e auditoria | Estilo escolhido do Hub de Arquitetura |
 | RS-05 | Dados, credenciais e metadados no Brasil (residência) | Compliance (a validar) |
 | RS-06 | Menor privilégio em todas as credenciais | Segurança |
 
@@ -107,7 +111,7 @@ Escopo desta versão: **DEV → QAS**. Produção está desenhada na seção 14 
 | ID | Decisão | Motivo |
 | --- | --- | --- |
 | **AD-01** | Migrar o transporte para **Content Agent + cTMS** | É o desenho de referência da SAP; o Content Agent oferece APIs para o export (a confirmar, RT-03), o que permite gerar a request sem clique. Ver `MIGRACAO-CPI.md` |
-| **AD-02** | **Orquestrar no SAP Integration Suite (Brasil)**, não no Automation Pilot | Atende RS-04 e RS-05 sem exceção; plataforma já aprovada e operada pelo banco; assina JWT nativamente com o Keystore |
+| **AD-02** | **Orquestrar no SAP Integration Suite (Brasil)**, não no Automation Pilot | (1) Governança: o CPI já é a plataforma de integração do banco, operada, monitorada e auditada pelo time de integração; (2) papel de cada produto: a SAP posiciona o Automation Pilot para operar o BTP e o CPI para integrar com sistemas externos, como o ServiceNow; (3) residência: tudo fica no Brasil (RS-05); (4) a chave do JWT nasce e fica no Keystore do CPI (RS-04). Avaliação própria, não uma recomendação oficial publicada pela SAP |
 | **AD-03** | **Modelo pull:** o CPI consulta o ServiceNow periodicamente; o ServiceNow não chama o CPI | Uma única direção de integração, no padrão já aprovado do ServiceNow (RS-01); nenhum endpoint de entrada exposto |
 | **AD-04** | **Máquina de estados persistida no chamado**, avançada a cada ciclo do timer, sem espera ativa dentro da iFlow | Robustez (sobrevive a reinícios), nenhuma mensagem longa no CPI, auditoria natural no próprio chamado |
 | **AD-05** | **Importar por ID da request**, nunca a fila inteira | RF-05 |
@@ -311,6 +315,8 @@ Opcional: as service keys do BTP podem usar credencial **X.509** em vez de clien
 
 ## 10. Especificação das iFlows de orquestração
 
+> Passo a passo de construção, configuração de cada adapter e scripts completos e testados: [`cpi-iflows/IMPLEMENTACAO-CPI.md`](cpi-iflows/IMPLEMENTACAO-CPI.md).
+
 ### 10.1 Pacote e artefatos
 
 Pacote `Z_TRANSPORTE_CPI` no tenant de orquestração:
@@ -442,6 +448,8 @@ Em seguida, a iFlow lê `TRP_SNOW_CLIENT` (SecureStoreService), monta o corpo `a
 | `u_cpi_tr_id` | String (40) | ID da transport request |
 | `u_cpi_action_id` | String (40) | ID da ação de import no cTMS |
 | `u_cpi_retries` | Integer | Tentativas em erro transitório |
+| `u_cpi_message` | String (255) | Motivo da falha ou resumo do sucesso |
+| `u_cpi_artifact_id` / `u_cpi_artifact_version` / `u_cpi_package_id` | String | Cópia das variáveis do item de catálogo, feita pelo flow (a Table API não lê variáveis como colunas) |
 | `work_notes` | Journal | Histórico legível de cada passo |
 
 ### 11.3 Cliente OAuth (padrão do Hub de Arquitetura)
@@ -510,7 +518,7 @@ Em seguida, a iFlow lê `TRP_SNOW_CLIENT` (SecureStoreService), monta o corpo `a
 
 | Alternativa | Por que não foi escolhida |
 | --- | --- |
-| **Automation Pilot como orquestrador** (primeira versão) | Disponível só na Europa: credenciais dos serviços do Brasil, chave do JWT e metadados ficariam fora do país; a chave em input do Automation Pilot não atende RS-04. Mantido como referência e laboratório |
+| **Automation Pilot como orquestrador** (primeira versão) | Funciona tecnicamente e o catálogo já existe, mas: é mais uma ferramenta para governar; o produto é voltado à operação do BTP, não a integrar com o ServiceNow; e só está disponível na Europa, levando credenciais e metadados para fora do país. Mantido como referência e laboratório |
 | **ServiceNow chamando o orquestrador (push)** | Exige expor um endpoint de entrada e aceitar o JWT do ServiceNow do outro lado; o Automation Pilot não aceita; no CPI exigiria configuração adicional. O modelo pull usa só o padrão de entrada já aprovado no ServiceNow |
 | **Rota DIRECT** (download e upload via OData, sem cTMS) | Perde a fila e o histórico do cTMS e foge do desenho de referência da SAP para transporte |
 | **Manter o modo Transport Management Service** | Sem API documentada para gerar a request; a automação continuaria dependendo do clique |

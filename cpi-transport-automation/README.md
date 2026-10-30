@@ -9,6 +9,8 @@ Versão de 7 de outubro de 2026 · João Pedro
 > Vai migrar do modo Transport Management Service para o Content Agent? Veja a [Migração CPI](MIGRACAO-CPI.md).
 >
 > Arquitetura recomendada (orquestração no Integration Suite, tudo no Brasil): [`ARQUITETURA-TRANSPORTE-CPI.md`](ARQUITETURA-TRANSPORTE-CPI.md)
+>
+> Implementação no CPI (iFlows, parâmetros, Security Material e scripts): [`cpi-iflows/IMPLEMENTACAO-CPI.md`](cpi-iflows/IMPLEMENTACAO-CPI.md)
 
 Manual de provisionamento para levar um iFlow do Cloud Integration DEV para QAS automaticamente: o desenvolvedor abre um chamado no ServiceNow, e o SAP Automation Pilot faz o transporte, o deploy e devolve o resultado ao chamado. Produção fica fora desta fase. Siga as fases 0 a 6 na ordem.
 
