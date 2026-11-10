@@ -26,7 +26,11 @@ import java.nio.charset.StandardCharsets
 import java.security.PrivateKey
 import java.security.Signature
 
-String prop(Message m, String k) { (m.getProperty(k) ?: "") as String }
+/** Lê uma propriedade. O valor "-" conta como vazio (para parâmetros opcionais). */
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
 
 String b64url(byte[] bytes) {
     Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
@@ -36,7 +40,7 @@ String enc(String s) { URLEncoder.encode(s ?: "", "UTF-8") }
 
 def Message buildTokenRequest(Message message) {
     // 1. client_id e client_secret do Security Material
-    def secureStore = ITApiFactory.getApi(SecureStoreService.class, null)
+    def secureStore = ITApiFactory.getService(SecureStoreService.class, null)
     def cred = secureStore.getUserCredential(prop(message, "SNOW_CLIENT_CREDENTIAL"))
     if (cred == null) {
         throw new IllegalStateException("Credencial " + prop(message, "SNOW_CLIENT_CREDENTIAL") + " não encontrada no Security Material")
@@ -45,7 +49,7 @@ def Message buildTokenRequest(Message message) {
     String clientSecret = new String(cred.getPassword())
 
     // 2. Chave privada do Keystore
-    def keystore = ITApiFactory.getApi(KeystoreService.class, null)
+    def keystore = ITApiFactory.getService(KeystoreService.class, null)
     def key = keystore.getKey(prop(message, "SNOW_JWT_KEY_ALIAS"))
     if (!(key instanceof PrivateKey)) {
         throw new IllegalStateException("Alias " + prop(message, "SNOW_JWT_KEY_ALIAS") + " não é uma chave privada no Keystore")
@@ -98,7 +102,8 @@ def Message parseTokenResponse(Message message) {
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     if (!json.access_token) {
-        throw new IllegalStateException("Resposta de token sem access_token")
+        String err = ((json.error ?: "") + " " + (json.error_description ?: "")).trim()
+        throw new IllegalStateException("Resposta de token sem access_token" + (err ? ": " + err : ""))
     }
     message.setBody(JsonOutput.toJson([access_token: json.access_token, expires_in: json.expires_in]))
     message.setHeader("Content-Type", "application/json")

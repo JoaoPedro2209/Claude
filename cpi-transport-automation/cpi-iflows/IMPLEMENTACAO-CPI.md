@@ -1,467 +1,1203 @@
 # Implementação no CPI — Transporte automatizado de iFlows
 
-**Guia de construção · versão 1.0 · 29 de outubro de 2026**
+**Guia de construção passo a passo · versão 2.0 · 10 de novembro de 2026**
 
-Este guia implementa, dentro do SAP Integration Suite (CPI), a arquitetura descrita em [`../ARQUITETURA-TRANSPORTE-CPI.md`](../ARQUITETURA-TRANSPORTE-CPI.md): o desenvolvedor abre um chamado no ServiceNow, e o CPI gera a transport request, leva pela rota do cTMS, faz o deploy em QAS e devolve o resultado ao chamado. O próprio ServiceNow fecha o chamado.
+Este guia implementa, dentro do SAP Integration Suite (CPI), a arquitetura descrita em [`../ARQUITETURA-TRANSPORTE-CPI.md`](../ARQUITETURA-TRANSPORTE-CPI.md): o desenvolvedor abre um chamado no ServiceNow, o CPI leva o iFlow pela rota do cTMS, faz o deploy em QAS e devolve o resultado ao chamado. O próprio ServiceNow fecha o chamado.
 
-Tudo o que vai dentro dos iFlows está aqui: passos, configuração de cada adapter, parâmetros, Security Material e os scripts Groovy completos (também em [`scripts/`](scripts/)).
+Siga os passos na ordem. Cada passo diz o que criar, onde clicar, o que preencher e como conferir antes de ir para o próximo.
+
+> **O que mudou na versão 2.0 (revisão completa da 1.0)**
+>
+> - **Roteiro em duas etapas.** Etapa A funciona **hoje, com a sua rota de transporte atual** (o dev ainda clica em Transport). Etapa B liga o export automático depois da migração para o Content Agent.
+> - **iFlows mais simples de montar.** O script decide a rota e os roteadores só comparam um valor. Saíram os subprocessos locais e 6 passos. A lista de parâmetros obrigatórios caiu para poucos itens; o resto tem padrão no script.
+> - **Correções nos scripts.** Troca da API `getApi` (descontinuada pela SAP) por `getService`; a checagem do deploy agora confere a **data do deploy** e avisa quando a versão que subiu é diferente da pedida; os status do cTMS aceitam palavra ou código curto; a busca no ServiceNow é montada e codificada pelo script.
+> - **Passos novos:** folha de valores, testes das APIs antes de construir, pedido pronto para o time do ServiceNow, iFlow de teste de conexão, e uma tabela de problemas comuns.
+> - Os scripts passaram em 82 verificações locais, no Groovy 2.4 e no Groovy 4. **Os iFlows ainda não rodaram em nenhum tenant**: a primeira execução real é a sua.
 
 ---
 
 ## Sumário
 
-1. [O que muda e o que não muda](#1-o-que-muda-e-o-que-não-muda)
-2. [Visão dos iFlows](#2-visão-dos-iflows)
-3. [Pré-requisitos](#3-pré-requisitos)
-4. [Security Material e Keystore](#4-security-material-e-keystore)
-5. [Pacote e scripts](#5-pacote-e-scripts)
-6. [Parâmetros externalizados](#6-parâmetros-externalizados)
-7. [IF_TRP_04_SnowUpdate](#7-if_trp_04_snowupdate)
-8. [IF_TRP_03_SnowToken](#8-if_trp_03_snowtoken)
-9. [IF_TRP_02_AdvanceTicket](#9-if_trp_02_advanceticket)
-10. [IF_TRP_01_Orchestrator](#10-if_trp_01_orchestrator)
-11. [Ordem de deploy e testes](#11-ordem-de-deploy-e-testes)
-12. [Operação](#12-operação)
-13. [Pontos a confirmar](#13-pontos-a-confirmar)
-14. [Anexo — scripts Groovy completos](#14-anexo--scripts-groovy-completos)
+1. [Visão geral](#1-visão-geral)
+2. [Roteiro de execução](#2-roteiro-de-execução)
+3. [Folha de valores](#3-folha-de-valores)
+4. [Passo 1 — BTP: service keys](#4-passo-1--btp-service-keys)
+5. [Passo 2 — Testar as APIs antes de construir](#5-passo-2--testar-as-apis-antes-de-construir)
+6. [Passo 3 — ServiceNow](#6-passo-3--servicenow)
+7. [Passo 4 — CPI: Keystore e Security Material](#7-passo-4--cpi-keystore-e-security-material)
+8. [Passo 5 — CPI: pacote e noções do editor](#8-passo-5--cpi-pacote-e-noções-do-editor)
+9. [Passo 6 — IF_TRP_04_SnowUpdate](#9-passo-6--if_trp_04_snowupdate)
+10. [Passo 7 — IF_TRP_03_SnowToken](#10-passo-7--if_trp_03_snowtoken)
+11. [Passo 8 — IF_TRP_99_ConnectionTest](#11-passo-8--if_trp_99_connectiontest)
+12. [Passo 9 — IF_TRP_02_AdvanceTicket](#12-passo-9--if_trp_02_advanceticket)
+13. [Passo 10 — IF_TRP_01_Orchestrator](#13-passo-10--if_trp_01_orchestrator)
+14. [Passo 11 — Testes ponta a ponta](#14-passo-11--testes-ponta-a-ponta)
+15. [Etapa B — Ligar o export por API](#15-etapa-b--ligar-o-export-por-api)
+16. [Problemas comuns e soluções](#16-problemas-comuns-e-soluções)
+17. [Operação](#17-operação)
+18. [Pontos a confirmar](#18-pontos-a-confirmar)
+19. [Referência de parâmetros](#19-referência-de-parâmetros)
+20. [Anexo — scripts Groovy completos](#20-anexo--scripts-groovy-completos)
 
 ---
 
-## 1. O que muda e o que não muda
+## 1. Visão geral
+
+### 1.1 O que muda e o que não muda
 
 | Pergunta | Resposta |
 | --- | --- |
-| O Automation Pilot continua? | **Não, no caminho principal.** O CPI assume a orquestração. O catálogo `cpitrans` fica como referência e laboratório |
-| A rota de transporte continua? | **Sim.** cTMS com os nós `DEV_CAS` → `QAS_CAS` (após a migração para o Content Agent, ver [`../MIGRACAO-CPI.md`](../MIGRACAO-CPI.md)) |
-| Precisa de API Management? | **Não.** O API Management serve para expor e proteger APIs para quem chama de fora. Aqui o CPI só chama APIs de outros sistemas, sem receber nada de fora |
-| Quem fecha o chamado? | **O ServiceNow**, por business rule, quando o CPI grava `SUCCESS` ou `FAILED` |
-| Como o CPI fala com o ServiceNow? | OAuth 2.0 com **JWT assinado por certificado** (grant `jwt-bearer`), um dos estilos de conexão do Hub de Arquitetura |
-| Quem chama quem? | Só o CPI chama o ServiceNow (modelo pull). O ServiceNow não chama o CPI |
+| O Automation Pilot continua? | **Não, no caminho principal.** O CPI assume a orquestração. O catálogo `cpitrans` fica como referência |
+| A rota de transporte continua? | **Sim.** O cTMS continua levando o conteúdo de DEV para QAS |
+| Precisa de API Management? | **Não.** O CPI só chama APIs de outros sistemas; ninguém de fora chama o CPI |
+| Quem fecha o chamado? | **O ServiceNow**, quando o CPI grava `SUCCESS` ou `FAILED` |
+| Como o CPI fala com o ServiceNow? | OAuth 2.0 com **JWT assinado por certificado** (grant `jwt-bearer`), um dos estilos do Hub de Arquitetura |
+| Quem chama quem? | Só o CPI chama o ServiceNow. O ServiceNow não chama o CPI |
 
-Fluxo resumido:
+### 1.2 Como funciona
+
+A cada 2 minutos o CPI pergunta ao ServiceNow quais chamados de transporte estão em andamento. Para cada um, ele dá **um passo** e grava o novo estado no próprio chamado. Nada fica esperando dentro do CPI.
 
 ```text
-ServiceNow (dev abre chamado, status PENDING)
-   ▲   │
-   │   └── CPI busca a cada 2 min (IF_TRP_01)
-   │         └── para cada chamado, avança 1 passo (IF_TRP_02):
-   │               PENDING    → cria export no Content Agent DEV
-   │               EXPORTING  → export pronto? importa SÓ essa request no nó QAS_CAS (cTMS)
-   │               IMPORTING  → import pronto? dispara deploy no CPI QAS
-   │               DEPLOYING  → iFlow STARTED na versão pedida? SUCCESS
-   └── CPI grava estado + notas no chamado (IF_TRP_04) → ServiceNow fecha o chamado
+Estado no chamado      O que o CPI faz nesse ciclo
+---------------------  ------------------------------------------------------------
+PENDING                Etapa A: pede ao dev o clique em Transport  -> WAITING_TR
+                       Etapa B: cria o export no Content Agent     -> EXPORTING
+WAITING_TR (Etapa A)   procura na fila do cTMS a request com o nº do chamado;
+                       achou: importa SÓ essa request              -> IMPORTING
+EXPORTING  (Etapa B)   export pronto? importa SÓ essa request      -> IMPORTING
+IMPORTING              import terminou? dispara o deploy em QAS    -> DEPLOYING
+DEPLOYING              iFlow STARTED, deploy novo, versão certa?   -> SUCCESS
+qualquer estado        erro definitivo, prazo vencido              -> FAILED
 ```
 
----
+### 1.3 Os iFlows
 
-## 2. Visão dos iFlows
-
-| iFlow | Gatilho | Função | Chama |
-| --- | --- | --- | --- |
-| `IF_TRP_01_Orchestrator` | Timer (a cada 2 min) | Obtém o token, lista os chamados ativos, envia um a um ao `IF_TRP_02` | `IF_TRP_03`, ServiceNow (GET), `IF_TRP_02` |
-| `IF_TRP_02_AdvanceTicket` | ProcessDirect `/trp/advance` | Avança um passo da máquina de estados do chamado | Content Agent, cTMS, CPI QAS, `IF_TRP_04` |
-| `IF_TRP_03_SnowToken` | ProcessDirect `/trp/snow-token` | Assina o JWT com a chave do Keystore e troca pelo access token | ServiceNow (`oauth_token.do`) |
-| `IF_TRP_04_SnowUpdate` | ProcessDirect `/trp/snow-update` | PATCH no chamado (estado, IDs, notas) | ServiceNow (Table API) |
-
-Regras gerais:
-
-- **Propriedades não atravessam o ProcessDirect.** O token do ServiceNow vai no header `X-Trp-Snow-Token`, e cada iFlow o converte em propriedade e esvazia o header no primeiro passo.
-- **Cada adapter HTTP envia só os headers listados** em *Request Headers*. Nunca use `*`: isso evita vazar o token para outro sistema.
-- **Nenhum passo espera dentro do iFlow.** As consultas de status acontecem no ciclo seguinte do timer.
-- **Log:** nível *Info* em produção. Use *Trace* só em teste e por pouco tempo, porque o trace grava corpos que contêm tokens.
-
----
-
-## 3. Pré-requisitos
-
-### 3.1 Tenant de orquestração
-
-Fase 1 (DEV → QAS): **tenant CPI de QAS** (decisão D1 da arquitetura). Antes da fase de produção, mover para um tenant dedicado.
-
-Roles do seu usuário no tenant: desenvolver e fazer deploy de iFlows, e administrar Security Material e Keystore (role collections `PI_Integration_Developer` e `PI_Administrator` ou equivalentes do banco).
-
-### 3.2 BTP — service keys dedicadas ao orquestrador
-
-Crie keys **novas**, só para o CPI de orquestração (não reaproveite as das destinations):
-
-| Key | Instância | Subaccount | Vai para |
-| --- | --- | --- | --- |
-| `key-cas-dev-trp` | Content Agent Service `standard` (`cas-dev`) | DEV | `TRP_CAS_DEV` |
-| `key-tms-trp` | Cloud Transport Management `standard` (`CTM_Service_Key`) | TMS | `TRP_CTMS` |
-| `key-pi-api-qas-deploy` | Process Integration Runtime `api` com `WorkspaceArtifactsDeploy` e `MonitoringDataRead` | QAS | `TRP_CPI_QAS` |
-
-### 3.3 ServiceNow
-
-Do lado do ServiceNow (detalhe na seção 11 da arquitetura), além do item de catálogo:
-
-1. **Colunas novas em `sc_req_item`.** As variáveis do item de catálogo não são colunas da tabela, então o flow copia os valores para colunas que a Table API lê direto:
-
-| Coluna | Tipo | Preenchida por |
+| iFlow | Gatilho | Função |
 | --- | --- | --- |
-| `u_cpi_artifact_id` | String (100) | Flow, a partir da variável `u_artifact_id` |
-| `u_cpi_artifact_version` | String (20) | Flow, a partir de `u_artifact_version` |
-| `u_cpi_package_id` | String (100) | Flow, a partir de `u_package_id` |
-| `u_cpi_transport_status` | Choice | Flow (`PENDING`) e CPI |
-| `u_cpi_stage_since` | Date/Time | Flow (agora) e CPI |
-| `u_cpi_retries` | Integer | CPI |
-| `u_cpi_operation_id` | String (100) | CPI |
-| `u_cpi_tr_id` | String (40) | CPI |
-| `u_cpi_action_id` | String (40) | CPI |
-| `u_cpi_message` | String (255) | CPI (motivo da falha ou resumo do sucesso) |
+| `IF_TRP_01_Orchestrator` | Timer (a cada 2 min) | Pega o token, lista os chamados em andamento e manda um a um para o `IF_TRP_02` |
+| `IF_TRP_02_AdvanceTicket` | ProcessDirect `/trp/advance` | Dá um passo no chamado: fila e import no cTMS, deploy e checagem no CPI QAS |
+| `IF_TRP_03_SnowToken` | ProcessDirect `/trp/snow-token` | Assina o JWT com a chave do Keystore e troca pelo token do ServiceNow |
+| `IF_TRP_04_SnowUpdate` | ProcessDirect `/trp/snow-update` | Atualiza o chamado (estado, IDs, notas) |
+| `IF_TRP_99_ConnectionTest` | Timer (uma vez, no deploy) | Temporário: testa o token e a gravação no ServiceNow |
 
-   Valores de `u_cpi_transport_status`: `PENDING`, `EXPORTING`, `WAITING_TR`, `IMPORTING`, `DEPLOYING`, `SUCCESS`, `FAILED`.
+Regras que valem para todos:
 
-2. **Flow (Service Catalog trigger):** copia as variáveis para as colunas acima, grava `u_cpi_transport_status = PENDING` e `u_cpi_stage_since = agora`. Nenhuma chamada REST.
-3. **Business rule** (after update em `sc_req_item`, quando `u_cpi_transport_status` muda): `SUCCESS` → State = Closed Complete; `FAILED` → grupo de suporte de integração + notificação ao solicitante.
-4. **Cliente OAuth JWT:** System OAuth → Application Registry → *Create an OAuth JWT API endpoint for external clients*; *User Field* = `user_name`; JWT Verifier Map com o `kid` e o certificado gerado no CPI (4.2).
-5. **Usuário de integração** `svc_cpi_transport`: *Web service access only*; leitura no item de catálogo e escrita só nas colunas `u_cpi_*` e em `work_notes`.
-
-### 3.4 Transporte
-
-A migração para o Content Agent (Fases 0 a 4 de [`../MIGRACAO-CPI.md`](../MIGRACAO-CPI.md)) precisa estar concluída para o modo `EXPORT_MODE = API`. Enquanto não estiver, ou se a API de export não for confirmada, use `EXPORT_MODE = MANUAL_TR` (contingência: o dev clica em Transport com o número do chamado na descrição).
+- **Propriedades não passam de um iFlow para outro pelo ProcessDirect; headers passam.** Por isso o token do ServiceNow vai no header `X-Trp-Snow-Token`, e cada iFlow o guarda numa propriedade e esvazia o header logo no primeiro passo.
+- **Cada chamada HTTP envia só os headers listados** no campo *Request Headers*. Nunca use `*`, para o token não vazar para outro sistema.
+- **Log em nível Info.** Use Trace só durante um teste e desligue em seguida: o trace grava corpos que contêm tokens.
 
 ---
 
-## 4. Security Material e Keystore
+## 2. Roteiro de execução
 
-Tudo em **Monitor → Integrations and APIs → Manage Security** do tenant de orquestração.
+### 2.1 Duas etapas
 
-### 4.1 Credenciais
-
-| Nome | Tipo | Campos |
+| | Etapa A — agora | Etapa B — depois |
 | --- | --- | --- |
-| `TRP_SNOW_CLIENT` | User Credentials | User = client_id do cliente OAuth do ServiceNow; Password = client_secret |
-| `TRP_CAS_DEV` | OAuth2 Client Credentials | Token Service URL = `uaa.url` da `key-cas-dev-trp` + `/oauth/token`; Client ID / Secret da key; Client Authentication = Send as Request Header; Content Type = `application/x-www-form-urlencoded` |
-| `TRP_CTMS` | OAuth2 Client Credentials | Mesmo padrão, com a `key-tms-trp` |
-| `TRP_CPI_QAS` | OAuth2 Client Credentials | Mesmo padrão, com a `key-pi-api-qas-deploy` (o `tokenurl` já vem completo na key) |
+| Rota de transporte | A **atual** (modo Transport Management Service) | Content Agent + cTMS (ver [`../MIGRACAO-CPI.md`](../MIGRACAO-CPI.md)) |
+| Quem gera a request | O dev clica em **Transport** e escreve o nº do chamado na descrição | O CPI, pela API de export do Content Agent |
+| Parâmetro | `EXPORT_MODE = MANUAL_TR` | `EXPORT_MODE = API` |
+| O que o CPI automatiza | Achar a request do chamado, importar só ela, deploy, checagem e retorno ao chamado | Tudo, sem clique |
+| Depende de | Nada além deste guia | Migração concluída e API de export confirmada (seção 18) |
 
-### 4.2 Par de chaves do JWT
+Faça a Etapa A inteira primeiro. Ela já entrega valor, valida toda a integração com o ServiceNow e o cTMS, e a Etapa B só acrescenta duas rotas num iFlow.
 
-Gere a chave **dentro do CPI**, assim a chave privada nunca sai do tenant:
+### 2.2 Checklist geral
 
-1. **Keystore → Create → Key Pair**.
-2. Alias `trp_snow_jwt`, algoritmo RSA 2048, validade conforme a política do banco (por exemplo 1 ano), Common Name `cpi-transporte-servicenow`.
-3. Selecione o par → **Download → Public Certificate**.
-4. Entregue o certificado (`.cer`) ao time do ServiceNow, que o cadastra no `sys_certificate` e no JWT Verifier Map com o `kid` combinado (por exemplo `trp-cpi-2026`).
+- [ ] **Passo 1** — 2 service keys criadas no BTP (cTMS e deploy em QAS)
+- [ ] **Passo 2** — 6 testes de API feitos; respostas anotadas
+- [ ] **Passo 3** — ServiceNow: colunas, item de catálogo, flow, cliente OAuth e usuário de integração
+- [ ] **Passo 4** — CPI: par de chaves do JWT criado; certificado entregue ao ServiceNow; 3 credenciais criadas
+- [ ] **Passo 5** — Pacote criado
+- [ ] **Passo 6** — `IF_TRP_04_SnowUpdate` no ar
+- [ ] **Passo 7** — `IF_TRP_03_SnowToken` no ar
+- [ ] **Passo 8** — Teste de conexão passou (token e work note)
+- [ ] **Passo 9** — `IF_TRP_02_AdvanceTicket` no ar
+- [ ] **Passo 10** — `IF_TRP_01_Orchestrator` no ar, ainda desligado
+- [ ] **Passo 11** — Testes ponta a ponta aprovados; orquestrador ligado
+- [ ] **Etapa B** — depois da migração
 
-Se a Segurança exigir HSM (decisão D2-A), a assinatura sai do script e vira uma chamada ao HSM. Ver seção 13.
+### 2.3 Quem faz o quê
 
----
-
-## 5. Pacote e scripts
-
-1. **Design → Create package**: nome `Transporte CPI (Orquestração)`, technical name `Z_TRANSPORTE_CPI`.
-2. Crie os 4 iFlows com os nomes da seção 2.
-3. Em cada iFlow: **Resources → Add → Script → Upload from file system** e envie o script correspondente:
-
-| iFlow | Script |
+| Atividade | Quem |
 | --- | --- |
-| `IF_TRP_01_Orchestrator` | [`scripts/TRP_01_Orchestrator.groovy`](scripts/TRP_01_Orchestrator.groovy) |
-| `IF_TRP_02_AdvanceTicket` | [`scripts/TRP_02_AdvanceTicket.groovy`](scripts/TRP_02_AdvanceTicket.groovy) |
-| `IF_TRP_03_SnowToken` | [`scripts/TRP_03_SnowToken.groovy`](scripts/TRP_03_SnowToken.groovy) |
-| `IF_TRP_04_SnowUpdate` | [`scripts/TRP_04_SnowUpdate.groovy`](scripts/TRP_04_SnowUpdate.groovy) |
-
-Cada arquivo tem várias funções. Em cada passo **Groovy Script** do iFlow, escolha o arquivo e preencha **Script Function** com o nome da função indicado nas tabelas abaixo.
-
-Os scripts foram testados fora do CPI com o Groovy 2.4 (o runtime padrão do CPI) e classes que simulam as APIs do CPI: 41 verificações, cobrindo assinatura e claims do JWT, todas as transições de estado, prazos, contingência e classificação de erros. Não usam recurso específico de versão, mas não foram executados no Groovy 4.
+| Passos 1, 2, 4 a 11 | Você (BTP e CPI) |
+| Passo 3 | Time do ServiceNow, a partir do pedido pronto da seção 6.1. Você entrega o certificado e recebe de volta 5 valores |
+| Decisão sobre onde fica a chave do JWT (Keystore do CPI ou HSM) | Segurança da Informação. Este guia usa o Keystore do CPI |
 
 ---
 
-## 6. Parâmetros externalizados
+## 3. Folha de valores
 
-Nos passos *Content Modifier → Exchange Property → Source Type = Constant*, use o valor `{{NOME}}`. O CPI cria o parâmetro externalizado e você preenche em **Configure** antes do deploy.
+Preencha esta folha conforme avança. Guarde os segredos num cofre, nunca em e-mail, chamado ou repositório.
 
-> Não use `${...}` nos valores dos parâmetros: o CPI interpreta isso como expressão. Os modelos usam marcadores `#NOME#`, trocados pelo script.
+| # | Valor | De onde vem | Onde é usado | Seu valor |
+| --- | --- | --- | --- | --- |
+| 1 | `uri` do cTMS | Service key `key-tms-trp` (Passo 1) | Parâmetro `CTMS_URI` | |
+| 2 | Token URL do cTMS | `uaa.url` da mesma key + `/oauth/token` | Credencial `TRP_CTMS` | |
+| 3 | Client ID e secret do cTMS | `uaa.clientid` / `uaa.clientsecret` | Credencial `TRP_CTMS` | (cofre) |
+| 4 | ID numérico do nó de QAS | Teste 1 do Passo 2 | Parâmetro `CTMS_QAS_NODE_ID` | |
+| 5 | `url` da API do CPI QAS | Service key `key-pi-api-qas-deploy` | Parâmetro `CPI_QAS_URL` | |
+| 6 | `tokenurl` do CPI QAS | Mesma key | Credencial `TRP_CPI_QAS` | |
+| 7 | Client ID e secret do CPI QAS | Mesma key | Credencial `TRP_CPI_QAS` | (cofre) |
+| 8 | Host do ServiceNow | Time do ServiceNow | Parâmetro `SNOW_HOST` (ex.: `bradesco.service-now.com`) | |
+| 9 | URL do token do ServiceNow | Time do ServiceNow | Parâmetro `SNOW_TOKEN_URL` | |
+| 10 | Client ID e secret do cliente OAuth | Time do ServiceNow | Credencial `TRP_SNOW_CLIENT` | (cofre) |
+| 11 | Key ID (`kid`) | Combinado com o time do ServiceNow (ex.: `trp-cpi-2026`) | Parâmetro `SNOW_JWT_KID` | |
+| 12 | Usuário de integração | Time do ServiceNow (ex.: `svc_cpi_transport`) | Parâmetro `SNOW_JWT_SUB` | |
+| 13 | sys_id do item de catálogo | Time do ServiceNow (seção 6.3) | Parâmetro `SNOW_CAT_ITEM_SYSID` | |
+| 14 | sys_id de um chamado de teste | Um chamado aberto por você | Parâmetro `TEST_SYS_ID` (Passo 8) | |
+| 15 | iFlow, versão e pacote de teste | Um iFlow sem efeito colateral em DEV | Testes do Passo 11 | |
 
-### 6.1 ServiceNow
+---
 
-| Parâmetro | iFlow | Exemplo / valor |
-| --- | --- | --- |
-| `SNOW_HOST` | 01, 04 | `bradesco.service-now.com` |
-| `SNOW_TABLE` | 01, 04 | `sc_req_item` |
-| `SNOW_CAT_ITEM_SYSID` | 01 | sys_id do item "Transporte CPI DEV → QAS" |
-| `SNOW_LIMIT` | 01 | `20` |
-| `ACTIVE_STATES` | 01 | `PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING` |
-| `TRP_ENABLED` | 01 | `true` (desliga tudo com `false`) |
-| `SNOW_TOKEN_URL` | 03 | `https://bradesco.service-now.com/oauth_token.do` (ou o endpoint do IdP corporativo) |
-| `SNOW_CLIENT_CREDENTIAL` | 03 | `TRP_SNOW_CLIENT` |
-| `SNOW_JWT_KEY_ALIAS` | 03 | `trp_snow_jwt` |
-| `SNOW_JWT_KID` | 03 | Key ID do JWT Verifier Map |
-| `SNOW_JWT_SUB` | 03 | `svc_cpi_transport` (valor do *User Field*) |
-| `SNOW_JWT_ISS` / `SNOW_JWT_AUD` | 03 | Vazio = client_id (padrão do ServiceNow) |
-| `SNOW_JWT_TTL_SECONDS` | 03 | `300` |
-| `SNOW_ASSERTION_PARAM` | 03 | `assertion` (jwt-bearer do ServiceNow) ou `client_assertion` |
-| `SNOW_TOKEN_SCOPE` | 03 | Vazio, ou o escopo combinado com o time do ServiceNow |
+## 4. Passo 1 — BTP: service keys
 
-### 6.2 Content Agent (export) — **a confirmar na documentação oficial**
+Crie keys **novas**, só para o orquestrador. Não reaproveite as keys que as destinations usam: assim você pode trocar ou revogar uma sem derrubar o transporte.
 
-| Parâmetro | Exemplo provisório | O que é |
-| --- | --- | --- |
-| `EXPORT_MODE` | `API` ou `MANUAL_TR` | `MANUAL_TR` = contingência sem API de export |
-| `CAS_DEV_URL` | URL da `key-cas-dev-trp` | Base da API do Content Agent |
-| `CAS_EXPORT_PATH` | `/CONFIRMAR/export` | Caminho do POST que cria o export |
-| `CAS_EXPORT_BODY_TEMPLATE` | `{"contentType":"CloudIntegration","resources":[{"id":"#PACKAGE_ID#"}],"exportMode":"CTMS","description":"#TICKET#"}` | Corpo do POST; marcadores `#PACKAGE_ID#`, `#ARTIFACT_ID#`, `#VERSION#`, `#TICKET#` |
-| `CAS_OPID_JSONPATH` | `id` | Onde está o ID da operação na resposta |
-| `CAS_STATUS_PATH` | `/CONFIRMAR/export/#OPERATION_ID#` | Caminho do GET de status |
-| `CAS_STATUS_JSONPATH` | `status` | Campo de status na resposta |
-| `CAS_DONE_VALUES` | `COMPLETED,SUCCEEDED` | Status de sucesso |
-| `CAS_FAILED_VALUES` | `FAILED,ERROR` | Status de falha |
-| `CAS_TRID_JSONPATH` | `transportRequest.id` | Onde está o ID da transport request |
-| `CRED_CAS_DEV` | `TRP_CAS_DEV` | Credencial do adapter |
+### 4.1 Key do cTMS
 
-### 6.3 cTMS
+1. BTP Cockpit → subaccount **TMS** → **Services → Instances and Subscriptions**.
+2. Em **Instances**, abra a instância do Cloud Transport Management (`CTM_Service_Key`, plano `standard`).
+3. **Service Keys → Create**. Nome: `key-tms-trp`. Sem parâmetros. **Create**.
+4. Abra a key (**View**) e copie para a folha de valores: `uri`, `uaa.url`, `uaa.clientid`, `uaa.clientsecret`.
+5. O token URL é `uaa.url` + `/oauth/token`.
 
-| Parâmetro | Exemplo | Observação |
-| --- | --- | --- |
-| `CTMS_URI` | `uri` da `key-tms-trp` | |
-| `CTMS_QAS_NODE_ID` | `42` | ID numérico do nó `QAS_CAS` |
-| `CTMS_NAMED_USER` | `cpi-orquestracao` | Aparece no histórico do cTMS |
-| `CTMS_IMPORT_PATH` | `/v2/nodes/#NODE_ID#/transportRequests/import` | Import por ID (a conferir) |
-| `CTMS_ACTIONID_JSONPATH` | `actionId` | A conferir |
-| `CTMS_ACTION_PATH` | `/v2/actions/#ACTION_ID#` | A conferir |
-| `CTMS_ACTION_STATUS_JSONPATH` | `status` | A conferir |
-| `CTMS_QUEUE_PATH` | `/v2/nodes/#NODE_ID#/transportRequests` | Só na contingência |
-| `CTMS_QUEUE_QUERY` | `status=initial` | Só na contingência |
-| `CRED_CTMS` | `TRP_CTMS` | |
+### 4.2 Instância e key de deploy em QAS
 
-### 6.4 CPI QAS e controle
+1. Subaccount **QAS** → **Instances and Subscriptions → Create**.
+2. Service: **Process Integration Runtime**. Plan: **api**. Instance Name: `pi-api-qas-deploy`. **Next**.
+3. Em **Parameters**, mude para a visão JSON e cole:
 
-| Parâmetro | Exemplo |
+```json
+{
+  "grant-types": ["client_credentials"],
+  "roles": [
+    "WorkspacePackagesRead",
+    "WorkspaceArtifactsDeploy",
+    "MonitoringDataRead"
+  ]
+}
+```
+
+4. **Create**. Quando a instância estiver pronta: **Service Keys → Create** → `key-pi-api-qas-deploy`.
+5. Copie para a folha de valores: `url`, `tokenurl`, `clientid`, `clientsecret` (ficam dentro de `oauth`).
+
+Para que serve cada role: `WorkspaceArtifactsDeploy` faz o deploy; `MonitoringDataRead` lê o status em runtime; `WorkspacePackagesRead` lê o iFlow no workspace. Se a tela de criação mostrar nomes diferentes, use os equivalentes que aparecerem.
+
+**Conferência:** você tem duas keys abertas e 7 valores anotados (linhas 1 a 3 e 5 a 7 da folha).
+
+---
+
+## 5. Passo 2 — Testar as APIs antes de construir
+
+Antes de montar qualquer iFlow, chame as APIs à mão. Isso confirma as credenciais e mostra o formato real das respostas, que é o que os parâmetros do `IF_TRP_02` precisam refletir. Os caminhos da API do cTMS usados aqui são os da versão 2; confira na referência (api.sap.com, pacote Cloud Transport Management) se algum responder 404.
+
+No Windows, abra o **PowerShell** e cole o bloco de preparação (troque os valores):
+
+```powershell
+function Get-BtpToken($tokenUrl, $clientId, $secret) {
+  $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${clientId}:${secret}"))
+  (Invoke-RestMethod -Method Post -Uri $tokenUrl `
+     -Headers @{Authorization = "Basic $basic"} `
+     -Body "grant_type=client_credentials" `
+     -ContentType "application/x-www-form-urlencoded").access_token
+}
+
+# cTMS (key-tms-trp)
+$tms      = "<uri>"
+$tmsToken = Get-BtpToken "<uaa.url>/oauth/token" "<uaa.clientid>" "<uaa.clientsecret>"
+$tmsH     = @{Authorization = "Bearer $tmsToken"; Accept = "application/json"}
+
+# CPI QAS (key-pi-api-qas-deploy)
+$cpi      = "<url>"
+$cpiToken = Get-BtpToken "<tokenurl>" "<clientid>" "<clientsecret>"
+$cpiH     = @{Authorization = "Bearer $cpiToken"; Accept = "application/json"}
+```
+
+### Teste 1 — Listar os nós do cTMS
+
+```powershell
+Invoke-RestMethod -Uri "$tms/v2/nodes" -Headers $tmsH | ConvertTo-Json -Depth 5
+```
+
+Ache o nó de QAS da sua rota e anote o `id` numérico (linha 4 da folha).
+
+```powershell
+$node = "<id do nó de QAS>"
+```
+
+### Teste 2 — Ver a fila do nó de QAS
+
+Antes, clique em **Transport** num pacote de teste no CPI DEV, com a descrição `TESTE-API-01`.
+
+```powershell
+Invoke-RestMethod -Uri "$tms/v2/nodes/$node/transportRequests" -Headers $tmsH | ConvertTo-Json -Depth 6
+```
+
+Anote, olhando a resposta:
+
+- a lista vem dentro de `transportRequests`, ou a resposta já é a lista?
+- cada request tem `id`, `description` e `status`?
+- qual é o valor de `status` da request que acabou de chegar (por exemplo `initial` ou `in`)?
+- a lista traz também requests antigas, já importadas?
+
+### Teste 3 — Importar só uma request
+
+```powershell
+$trId = <id da request TESTE-API-01>
+$body = @{ namedUser = "teste-manual"; transportRequests = @($trId) } | ConvertTo-Json
+$imp  = Invoke-RestMethod -Method Post -Uri "$tms/v2/nodes/$node/transportRequests/import" `
+          -Headers $tmsH -Body $body -ContentType "application/json"
+$imp | ConvertTo-Json -Depth 5
+```
+
+Anote o nome do campo que traz o ID da ação (esperado: `actionId`).
+
+### Teste 4 — Acompanhar a ação de import
+
+```powershell
+Invoke-RestMethod -Uri "$tms/v2/actions/$($imp.actionId)" -Headers $tmsH | ConvertTo-Json -Depth 6
+```
+
+Repita até terminar. Anote o campo de status e os valores que aparecem **durante** e **no fim** (por exemplo `running` e `succeeded`, ou códigos curtos como `ru` e `su`). Confira no CPI QAS que o pacote chegou no workspace (**Design**).
+
+### Teste 5 — Ler o status de um iFlow em runtime no QAS
+
+Use o ID técnico de um iFlow que já está implantado em QAS:
+
+```powershell
+$iflow = "<ID técnico>"
+Invoke-RestMethod -Uri "$cpi/api/v1/IntegrationRuntimeArtifacts('$iflow')" -Headers $cpiH | ConvertTo-Json -Depth 5
+```
+
+Esperado: um objeto `d` com `Status` (`STARTED`), `Version` e `DeployedOn`.
+
+### Teste 6 — Deploy por API
+
+Use o iFlow de teste que chegou no Teste 4:
+
+```powershell
+$iflow = "<ID técnico do iFlow de teste>"
+Invoke-WebRequest -UseBasicParsing -Method Post -Headers $cpiH `
+  -Uri "$cpi/api/v1/DeployIntegrationDesigntimeArtifact?Id='$iflow'&Version='active'" |
+  Select-Object StatusCode, Content
+```
+
+Esperado: `StatusCode` 202. Depois repita o Teste 5 com esse iFlow até `Status` = `STARTED`.
+
+### O que fazer com o que você anotou
+
+| Se você viu | Então |
 | --- | --- |
-| `CPI_QAS_URL` | `url` da `key-pi-api-qas-deploy` (ex.: `https://<tenant>.it-cpi<nnn>.cfapps.br10.hana.ondemand.com`) |
-| `CRED_CPI_QAS` | `TRP_CPI_QAS` |
-| `TIMEOUT_EXPORT_MIN` | `15` |
-| `TIMEOUT_WAITING_TR_MIN` | `60` |
-| `TIMEOUT_IMPORT_MIN` | `15` |
-| `TIMEOUT_DEPLOY_MIN` | `10` |
-| `MAX_RETRIES` | `5` |
+| Tudo como esperado (`transportRequests`, `id`, `description`, `actionId`, `status` com `succeeded` ou `su`) | Não precisa de nenhum parâmetro opcional. O script já usa esses padrões |
+| A fila com outro caminho | Crie o parâmetro `CTMS_QUEUE_PATH` com o caminho certo (use `#NODE_ID#` no lugar do ID) |
+| O ID da ação em outro campo | Parâmetro `CTMS_ACTIONID_JSONPATH` (ex.: `action.id`) |
+| O status da ação em outro campo ou com outros valores | Parâmetros `CTMS_ACTION_STATUS_JSONPATH`, `CTMS_ACTION_OK_VALUES`, `CTMS_ACTION_FAILED_VALUES` |
+| O status de request "importável" diferente de `initial`, `in`, `repeatable`, `re` | Parâmetro `CTMS_IMPORTABLE_VALUES` |
+| Erro 403 no Teste 6 falando de CSRF | Veja a linha "CSRF" na seção 16 |
+| Erro 401 | Token URL ou secret errado, ou credencial de outro ambiente |
+| Erro 403 | cTMS: key de instância que não é plano `standard`. CPI: falta role na instância `pi-api-qas-deploy` |
 
 ---
 
-## 7. IF_TRP_04_SnowUpdate
+## 6. Passo 3 — ServiceNow
 
-Atualiza o chamado. É o primeiro a ser construído, porque os outros dependem dele.
+### 6.1 Pedido pronto para o time do ServiceNow
 
-**Sender:** ProcessDirect, Address `/trp/snow-update`.
+Envie este pedido ao time do ServiceNow, junto com o certificado público gerado na seção 7.1.
 
-| # | Passo | Tipo | Configuração |
+> **Pedido: integração "Transporte CPI DEV → QAS"**
+>
+> 1. **Cliente OAuth de entrada** no estilo *OAuth 2.0 com JWT assinado por certificado* (grant `jwt-bearer`), para o cliente "SAP CPI – Transporte". Cadastrar o certificado anexo e um JWT Verifier Map com Key ID `trp-cpi-2026`. *User Field* = User ID (`user_name`).
+> 2. **Usuário de integração** `svc_cpi_transport` (Web service access only), com permissão para **ler** registros de `sc_req_item` do item de catálogo abaixo e **gravar** somente nas colunas `u_cpi_*` e em `work_notes`.
+> 3. **Colunas novas** em `sc_req_item` (lista na seção 6.2).
+> 4. **Item de catálogo** "Transporte CPI DEV → QAS" com as variáveis da seção 6.3.
+> 5. **Flow** do item (seção 6.4): copia as variáveis para as colunas, grava `PENDING`, espera o resultado e fecha o chamado.
+>
+> **Preciso de volta:** host da instância, URL do token, client ID e client secret, confirmação do Key ID e do usuário, e o sys_id do item de catálogo.
+
+O restante desta seção detalha cada item, para o time do ServiceNow ou para você acompanhar.
+
+### 6.2 Colunas novas em `sc_req_item`
+
+**System Definition → Tables →** abra `Requested Item [sc_req_item]` **→ Columns → New** (uma por linha):
+
+| Column label | Column name | Type | Tamanho / valores |
 | --- | --- | --- | --- |
-| 1 | Config | Content Modifier | Exchange Properties (Constant): `SNOW_HOST` = `{{SNOW_HOST}}`; `SNOW_TABLE` = `{{SNOW_TABLE}}` |
-| 2 | Preparar PATCH | Groovy Script | `TRP_04_SnowUpdate.groovy` · função `prepareUpdate` |
-| 3 | PATCH no chamado | Request Reply → **HTTP** | Address: `https://${property.SNOW_HOST}/api/now/table/${property.SNOW_TABLE}/${property.SYS_ID}` · Method: `PATCH` · Authentication: None · Request Headers: `Authorization\|Content-Type\|Accept` · Response Headers: vazio · Throw Exception on Failure: ✔ · Timeout: 60000 |
-| 4 | Limpar | Content Modifier | Message Body vazio (não devolve dados do ServiceNow a quem chamou) |
-| — | Fim | End | |
+| CPI artifact ID | `u_cpi_artifact_id` | String | 100 |
+| CPI artifact version | `u_cpi_artifact_version` | String | 20 |
+| CPI package ID | `u_cpi_package_id` | String | 100 |
+| CPI transport status | `u_cpi_transport_status` | Choice | `PENDING`, `WAITING_TR`, `EXPORTING`, `IMPORTING`, `DEPLOYING`, `SUCCESS`, `FAILED` (valor = rótulo, em maiúsculas) |
+| CPI stage since | `u_cpi_stage_since` | Date/Time | — |
+| CPI retries | `u_cpi_retries` | Integer | padrão 0 |
+| CPI operation ID | `u_cpi_operation_id` | String | 100 |
+| CPI transport request | `u_cpi_tr_id` | String | 40 |
+| CPI action ID | `u_cpi_action_id` | String | 40 |
+| CPI message | `u_cpi_message` | String | 255 |
 
-Entrada esperada: header `X-Trp-Snow-Token` e corpo `{"sys_id":"...","fields":{...}}`.
+Os nomes precisam ser exatamente esses. A Table API **ignora em silêncio** campos com nome errado: o chamado viria com os campos vazios e falharia na validação.
+
+Por que colunas, e não só as variáveis do item: a Table API não devolve variáveis de catálogo como campos do registro. O flow copia os valores para as colunas, e o CPI lê as colunas.
+
+### 6.3 Item de catálogo
+
+**Service Catalog → Catalog Definitions → Maintain Items → New**. Nome: `Transporte CPI DEV → QAS`. Depois, na lista **Variables → New**:
+
+| Question | Name | Type | Obrigatória | Validação (regex) |
+| --- | --- | --- | --- | --- |
+| ID técnico do iFlow | `u_artifact_id` | Single Line Text | Sim | `^[A-Za-z0-9_.-]+$` |
+| Versão em DEV | `u_artifact_version` | Single Line Text | Sim | `^\d+\.\d+\.\d+$` |
+| ID técnico do pacote | `u_package_id` | Single Line Text | Sim | `^[A-Za-z0-9_.-]+$` |
+| Ambiente de destino | `u_target_env` | Select Box (só `QAS`), read-only | Sim | — |
+| Justificativa | `u_justification` | Multi Line Text | Sim | — |
+| Mudança relacionada | `u_change_reference` | Single Line Text | Não | — |
+
+Texto de ajuda sugerido para o dev, na Etapa A:
+
+> 1. Salve a versão do iFlow no CPI DEV (**Save as version**).
+> 2. Abra este chamado e anote o número (RITM…).
+> 3. No pacote do CPI DEV, clique em **Transport** e escreva o número do chamado na descrição.
+> 4. Acompanhe o status aqui. Não importe nada à mão no cTMS.
+
+**sys_id do item (linha 13 da folha):** abra o item, clique com o botão direito na barra de título do formulário → **Copy sys_id**.
+
+### 6.4 Flow do item
+
+**Flow Designer → New → Flow**. Nome: `Transporte CPI DEV → QAS`. Run As: **System User**. Depois de pronto, selecione este flow no campo **Flow** (aba Process Engine) do item de catálogo.
+
+| # | Passo | Configuração |
+| --- | --- | --- |
+| Trigger | **Service Catalog** | — |
+| 1 | **Get Catalog Variables** | Submitted Request = Trigger → Requested Item Record; Template Catalog Item = o item da 6.3; selecione as variáveis |
+| 2 | **Update Record** | Record = Trigger → Requested Item Record. Campos: `u_cpi_artifact_id` = variável `u_artifact_id`; `u_cpi_artifact_version` = `u_artifact_version`; `u_cpi_package_id` = `u_package_id`; `u_cpi_transport_status` = `PENDING`; `u_cpi_retries` = 0 |
+| 3 | **Wait For Condition** | Record = Requested Item; condição: `CPI transport status` **is one of** `SUCCESS`, `FAILED`. Timeout opcional: 3 horas |
+| 4 | **If** `CPI transport status` is `SUCCESS` | **Update Record**: State = Closed Complete |
+| 5 | **Else** | **Update Record**: Assignment group = grupo de suporte de integração; work notes "Transporte falhou. Ver campo CPI message." Opcional: **Send Notification** ao solicitante |
+| — | **Activate** | Em rascunho o flow não dispara |
+
+O flow não faz nenhuma chamada REST. Ele só prepara o chamado, espera o CPI gravar o resultado e fecha.
+
+Se o processo do banco preferir uma **business rule** no lugar dos passos 3 a 5: *before update* em `sc_req_item`, condição `CPI transport status` *changes*, com o script:
+
+```javascript
+(function executeRule(current, previous) {
+    if (current.u_cpi_transport_status == 'SUCCESS') {
+        current.state = 3; // Closed Complete (confira o valor na sua instância)
+    } else if (current.u_cpi_transport_status == 'FAILED') {
+        current.assignment_group.setDisplayValue('<grupo de suporte de integração>');
+    }
+})(current, previous);
+```
+
+### 6.5 Cliente OAuth com JWT
+
+Quem faz precisa da role `oauth_admin`.
+
+1. **Certificado.** Navegue para `sys_certificate.list` → **New**. Name: `SAP CPI Transporte`. Format: PEM. Cole o conteúdo do certificado público gerado no CPI (seção 7.1). Salve.
+2. **Endpoint.** **System OAuth → Application Registry → New → Create an OAuth JWT API endpoint for external clients**.
+
+| Campo | Valor |
+| --- | --- |
+| Name | `SAP CPI - Transporte` |
+| Client ID | Gerado sozinho. Anote |
+| Client Secret | Deixe em branco para gerar. Anote depois de salvar |
+| User Field | **User ID** (`user_name`) |
+| Enable JTI Verification | Marcado (o CPI manda um `jti` novo a cada pedido) |
+| Clock Skew | 300 (padrão) |
+| Access Token Lifespan | Padrão da instância |
+
+3. **JWT Verifier Maps** (lista relacionada no fim do formulário) → **New**. Name: `cpi-transporte`. Kid: `trp-cpi-2026`. Sys certificate: o certificado do item 1. Salve.
+
+Como o ServiceNow valida o JWT do CPI:
+
+| Campo do JWT | Valor que o CPI manda | O que o ServiceNow confere |
+| --- | --- | --- |
+| `kid` (cabeçalho) | `SNOW_JWT_KID` | Acha o Verifier Map e o certificado |
+| `aud` e `iss` | O client ID | Precisam ser iguais ao Client ID do endpoint |
+| `sub` | `SNOW_JWT_SUB` | Acha o usuário pelo *User Field* |
+| `exp` | Agora + 5 min | Não vencido (com o Clock Skew) |
+| `jti` | Um identificador novo por pedido | Não repetido |
+| Assinatura | RS256 com a chave do Keystore do CPI | Confere com o certificado |
+
+### 6.6 Usuário de integração
+
+1. **User Administration → Users → New**. User ID: `svc_cpi_transport`. Marque **Web service access only**. Ativo.
+2. Permissões (o time do ServiceNow decide a forma, por role e ACL):
+   - **ler** `sc_req_item`, pelo menos os registros do item de catálogo do transporte, incluindo os campos `cat_item`, `number`, `sys_id` e os `u_cpi_*`;
+   - **gravar** somente nos campos `u_cpi_*` e em `work_notes`;
+   - acesso à Table API (algumas instâncias exigem uma role própria para REST, como `snc_platform_rest_api_access`).
+3. A Table API só devolve os registros que o usuário pode ler. Se a busca voltar vazia com chamados abertos, o motivo quase sempre é ACL.
+
+**Conferência do Passo 3:** linhas 8 a 13 da folha preenchidas; um chamado de teste aberto pelo portal aparece com `CPI transport status = PENDING` e as três colunas `u_cpi_artifact_id`, `u_cpi_artifact_version` e `u_cpi_package_id` preenchidas. Copie o sys_id desse chamado (linha 14).
 
 ---
 
-## 8. IF_TRP_03_SnowToken
+## 7. Passo 4 — CPI: Keystore e Security Material
 
-Monta e assina o JWT e troca pelo access token do ServiceNow.
+Tudo no tenant de orquestração (nesta fase, o **CPI de QAS**), em **Monitor → Integrations and APIs → Manage Security**.
 
-**Sender:** ProcessDirect, Address `/trp/snow-token`.
+### 7.1 Par de chaves do JWT
 
-| # | Passo | Tipo | Configuração |
+A chave é gerada dentro do CPI. A chave privada nunca sai do tenant.
+
+1. Tile **Keystore** → **Create → Key Pair**.
+2. Preencha:
+
+| Campo | Valor |
+| --- | --- |
+| Alias | `trp_snow_jwt` |
+| Key Type | RSA |
+| Key Size | 2048 |
+| Signature Algorithm | SHA-256/RSA |
+| Common Name (CN) | `cpi-transporte-servicenow` |
+| Organization, Country etc. | Conforme o padrão do banco |
+| Valid Until | Conforme a política do banco (ex.: 1 ano) |
+
+3. **Create**. A entrada aparece com o tipo **Key Pair**.
+4. Selecione a entrada → **Download → Certificate** (arquivo `.cer`).
+5. Entregue o `.cer` ao time do ServiceNow (seção 6.5, item 1). Se pedirem em PEM e o arquivo vier binário, converta com `openssl x509 -inform der -in trp_snow_jwt.cer -out trp_snow_jwt.pem`.
+6. Anote a data de validade num calendário, com alerta 30 dias antes.
+
+### 7.2 Credenciais
+
+Tile **Security Material** → **Create**.
+
+**`TRP_SNOW_CLIENT`** — tipo **User Credentials**
+
+| Campo | Valor |
+| --- | --- |
+| Name | `TRP_SNOW_CLIENT` |
+| Type | User Credentials |
+| User | Client ID do cliente OAuth do ServiceNow |
+| Password | Client secret |
+
+**`TRP_CTMS`** — tipo **OAuth2 Client Credentials**
+
+| Campo | Valor |
+| --- | --- |
+| Name | `TRP_CTMS` |
+| Token Service URL | `uaa.url` + `/oauth/token` (linha 2 da folha) |
+| Client ID / Client Secret | Da `key-tms-trp` |
+| Client Authentication | Send as Request Header |
+| Content Type | `application/x-www-form-urlencoded` |
+| Scope | Vazio |
+
+**`TRP_CPI_QAS`** — tipo **OAuth2 Client Credentials**, mesmo padrão, com o `tokenurl`, `clientid` e `clientsecret` da `key-pi-api-qas-deploy`.
+
+Clique em **Deploy** em cada uma.
+
+**Conferência:** no Keystore existe `trp_snow_jwt` (Key Pair); no Security Material existem `TRP_SNOW_CLIENT`, `TRP_CTMS` e `TRP_CPI_QAS` com status **Deployed**.
+
+---
+
+## 8. Passo 5 — CPI: pacote e noções do editor
+
+### 8.1 Criar o pacote
+
+1. **Design → Integrations and APIs → Create**.
+2. Name: `Transporte CPI (Orquestração)`. Technical Name: `Z_TRANSPORTE_CPI`. Short description livre. **Save**.
+
+### 8.2 Como fazer cada coisa no editor
+
+Os nomes dos menus podem variar um pouco conforme a versão do tenant. O que não muda é o tipo de cada passo.
+
+| Quero | Como fazer |
+| --- | --- |
+| Criar um iFlow | No pacote: **Edit → Artifacts → Add → Integration Flow**. Preencha o **Name**; o ID é gerado. Abra o iFlow e clique em **Edit** |
+| Remetente por ProcessDirect | Arraste a seta da caixa **Sender** até o evento **Start**. Na lista de adapters escolha **ProcessDirect**. Aba **Connection → Address** |
+| Começar por Timer | Apague o **Start** e a caixa **Sender**. Na paleta: **Events → Timer**. Ligue o Timer ao primeiro passo |
+| Adicionar um passo | Clique na paleta (ou no `+` que aparece ao selecionar um passo) e solte sobre a linha entre dois passos |
+| Content Modifier | Paleta **Message Transformers → Content Modifier** |
+| Groovy Script | Paleta **Message Transformers → Script → Groovy Script** |
+| Router | Paleta **Message Routing → Router** |
+| Iterating Splitter | Paleta **Message Routing → Splitter → Iterating Splitter** |
+| Request Reply | Paleta **Call → External Call → Request Reply** |
+| Receiver (destino de uma chamada) | Paleta **Participants → Receiver**. Solte fora da caixa do processo e dê um nome. Use **um Receiver para cada chamada** |
+| Ligar uma chamada ao destino | Arraste a seta do passo **Request Reply** até a caixa do **Receiver** e escolha o adapter (**HTTP** ou **ProcessDirect**) |
+| Exception Subprocess | Paleta **Process → Exception Subprocess**. Solte **dentro** da caixa Integration Process |
+| Ver as propriedades de um passo | Clique no passo; as abas aparecem na parte de baixo da tela |
+| Ver as propriedades do iFlow | Clique numa área vazia **fora** da caixa do processo (aba **Runtime Configuration**) |
+
+### 8.3 Scripts
+
+Cada iFlow usa **um** arquivo de script, com várias funções.
+
+1. Adicione o primeiro passo **Groovy Script** do iFlow. O editor abre um script novo (`script1.groovy`).
+2. Apague todo o conteúdo e cole o conteúdo do arquivo indicado (pasta [`scripts/`](scripts/) ou o anexo, seção 20). **OK**.
+3. Clique no passo → aba **Processing** → campo **Script Function**: digite o nome da função desse passo (por exemplo `prepareUpdate`).
+4. Nos **próximos** passos de script do mesmo iFlow: adicione o passo, feche o editor que abrir sem salvar, e na aba **Processing** use **Select** (ou **Assign**) em **Script File** para escolher o **mesmo** arquivo. Depois preencha a **Script Function**.
+
+Atenção ao nome da função: é sensível a maiúsculas. Um nome errado só aparece como erro na execução.
+
+### 8.4 Parâmetros externalizados
+
+Onde este guia mostrar `{{NOME}}`, digite exatamente assim no campo, com as chaves duplas. O CPI transforma isso num parâmetro.
+
+Para preencher os valores: salve o iFlow, volte ao pacote, e no iFlow use **Actions (…) → Configure**. Preencha e **Save**. Isso pode ser refeito a qualquer momento, sem editar o iFlow; depois é só **Deploy** de novo.
+
+Regras:
+
+- Não escreva `${...}` no **valor** de um parâmetro: o CPI trataria como expressão.
+- Um parâmetro não pode ficar vazio em alguns campos. Quando o guia disser "opcional", use `-` para dizer "vazio". Os scripts entendem `-` como vazio.
+
+### 8.5 Configuração comum a todos os iFlows
+
+Em cada iFlow, clique fora da caixa do processo → aba **Runtime Configuration** → **Allowed Header(s)**: `X-Trp-Snow-Token`.
+
+Em tese o ProcessDirect já repassa headers entre iFlows. Deixar esse header liberado evita o erro "Token do ServiceNow ausente" se o seu tenant filtrar.
+
+### 8.6 Salvar, implantar e conferir
+
+1. **Save** (canto superior direito). Corrija os erros que a checagem apontar.
+2. **Deploy**.
+3. **Monitor → Integrations and APIs → Manage Integration Content**: o iFlow precisa ficar em **Started**.
+4. Nível de log: nessa mesma tela, selecione o iFlow → **Log Configuration → Log Level**.
+5. Execuções: **Monitor → Monitor Message Processing**.
+
+---
+
+## 9. Passo 6 — IF_TRP_04_SnowUpdate
+
+Atualiza o chamado. É o primeiro porque os outros dependem dele. É também o mais simples: use-o para pegar a mão do editor.
+
+**Script:** [`scripts/TRP_04_SnowUpdate.groovy`](scripts/TRP_04_SnowUpdate.groovy)
+
+### 9.1 Montagem
+
+```text
+Sender --ProcessDirect--> Start -> [1 Script] -> [2 Request Reply] -> [3 Script] -> End
+                                                        |
+                                                        +--HTTP--> Receiver "ServiceNow"
+```
+
+1. Crie o iFlow `IF_TRP_04_SnowUpdate` e clique em **Edit**.
+2. Ligue **Sender → Start** com o adapter **ProcessDirect**. Address: `/trp/snow-update`.
+3. Apague a caixa **Receiver** que veio no modelo, se ela estiver ligada ao End. Você vai criar o seu.
+4. Adicione os passos da tabela, nesta ordem, entre o Start e o End.
+5. Adicione um **Receiver** chamado `ServiceNow` e ligue o passo 2 a ele com o adapter **HTTP**.
+
+| # | Nome do passo | Tipo | Configuração |
 | --- | --- | --- | --- |
-| 1 | Config | Content Modifier | Exchange Properties (Constant): `SNOW_TOKEN_URL`, `SNOW_CLIENT_CREDENTIAL`, `SNOW_JWT_KEY_ALIAS`, `SNOW_JWT_KID`, `SNOW_JWT_SUB`, `SNOW_JWT_ISS`, `SNOW_JWT_AUD`, `SNOW_JWT_TTL_SECONDS`, `SNOW_ASSERTION_PARAM`, `SNOW_TOKEN_SCOPE`, cada um = `{{NOME}}` |
-| 2 | Assinar JWT | Groovy Script | `TRP_03_SnowToken.groovy` · função `buildTokenRequest` |
-| 3 | Pedir token | Request Reply → **HTTP** | Address: `${property.SNOW_TOKEN_URL}` · Method: `POST` · Authentication: None · Request Headers: `Content-Type\|Accept` · Throw Exception on Failure: ✔ · Timeout: 30000 |
-| 4 | Extrair token | Groovy Script | `TRP_03_SnowToken.groovy` · função `parseTokenResponse` |
-| — | Fim | End | Devolve `{"access_token":"...","expires_in":n}` |
+| 1 | Preparar atualização | Groovy Script | Script Function: `prepareUpdate` |
+| 2 | Atualizar chamado | Request Reply → HTTP | Tabela 9.2 |
+| 3 | Limpar | Groovy Script | Script Function: `finishUpdate` |
+
+### 9.2 Adapter HTTP do passo 2 (aba Connection)
+
+| Campo | Valor |
+| --- | --- |
+| Address | `https://{{SNOW_HOST}}/api/now/table/{{SNOW_TABLE}}/${property.SYS_ID}` |
+| Query | Vazio |
+| Proxy Type | Internet |
+| Method | **PATCH** |
+| Authentication | None |
+| Timeout (in ms) | 60000 |
+| Throw Exception on Failure | Marcado |
+| Request Headers | `Authorization\|Content-Type\|Accept` |
+| Response Headers | Vazio |
+
+No campo, os nomes são separados por barra vertical, sem espaços: `Authorization|Content-Type|Accept`. Vale o mesmo para todas as tabelas de adapter deste guia.
+
+Se **PATCH** não aparecer na lista de métodos do seu tenant, use **PUT**. Na Table API do ServiceNow os dois atualizam o registro; confirme no teste do Passo 8 que só os campos enviados mudaram.
+
+### 9.3 Runtime, parâmetros e deploy
+
+1. **Runtime Configuration → Allowed Header(s)**: `X-Trp-Snow-Token`.
+2. **Save**. No pacote: **Configure**:
+
+| Parâmetro | Valor |
+| --- | --- |
+| `SNOW_HOST` | Host do ServiceNow, sem `https://` (linha 8 da folha) |
+| `SNOW_TABLE` | `sc_req_item` |
+
+3. **Deploy** e confira **Started**.
+
+O que o iFlow espera receber: o header `X-Trp-Snow-Token` e o corpo `{"sys_id":"...","fields":{...}}`. O teste real acontece no Passo 8.
+
+---
+
+## 10. Passo 7 — IF_TRP_03_SnowToken
+
+Monta e assina o JWT e troca pelo token do ServiceNow.
+
+**Script:** [`scripts/TRP_03_SnowToken.groovy`](scripts/TRP_03_SnowToken.groovy)
+
+### 10.1 Montagem
+
+```text
+Sender --ProcessDirect--> Start -> [1 Content Modifier] -> [2 Script] -> [3 Request Reply] -> [4 Script] -> End
+                                                                                |
+                                                                                +--HTTP--> Receiver "ServiceNow_Token"
+```
+
+Sender: ProcessDirect, Address `/trp/snow-token`.
+
+| # | Nome do passo | Tipo | Configuração |
+| --- | --- | --- | --- |
+| 1 | Config | Content Modifier | Aba **Exchange Property**, tabela 10.2 |
+| 2 | Assinar JWT | Groovy Script | Script Function: `buildTokenRequest` |
+| 3 | Pedir token | Request Reply → HTTP | Tabela 10.3 |
+| 4 | Extrair token | Groovy Script | Script Function: `parseTokenResponse` |
+
+### 10.2 Content Modifier "Config" (aba Exchange Property)
+
+Para cada linha: **Add** → Action = Create, Name = a coluna Name, Source Type = **Constant**, Source Value = a coluna Value.
+
+| Name | Source Value | Obrigatório |
+| --- | --- | --- |
+| `SNOW_CLIENT_CREDENTIAL` | `{{SNOW_CLIENT_CREDENTIAL}}` | Sim |
+| `SNOW_JWT_KEY_ALIAS` | `{{SNOW_JWT_KEY_ALIAS}}` | Sim |
+| `SNOW_JWT_KID` | `{{SNOW_JWT_KID}}` | Sim |
+| `SNOW_JWT_SUB` | `{{SNOW_JWT_SUB}}` | Sim |
+| `SNOW_ASSERTION_PARAM` | `{{SNOW_ASSERTION_PARAM}}` | Sim |
+| `SNOW_JWT_AUD` | `{{SNOW_JWT_AUD}}` | Opcional |
+| `SNOW_JWT_ISS` | `{{SNOW_JWT_ISS}}` | Opcional |
+| `SNOW_TOKEN_SCOPE` | `{{SNOW_TOKEN_SCOPE}}` | Opcional |
+
+### 10.3 Adapter HTTP do passo 3
+
+| Campo | Valor |
+| --- | --- |
+| Address | `{{SNOW_TOKEN_URL}}` |
+| Proxy Type | Internet |
+| Method | POST |
+| Authentication | None |
+| Timeout (in ms) | 30000 |
+| Throw Exception on Failure | Marcado |
+| Request Headers | `Content-Type\|Accept` |
+| Response Headers | Vazio |
+
+### 10.4 Runtime, parâmetros e deploy
+
+**Allowed Header(s)**: `X-Trp-Snow-Token`. **Save → Configure**:
+
+| Parâmetro | Valor |
+| --- | --- |
+| `SNOW_TOKEN_URL` | `https://<host>/oauth_token.do` (linha 9 da folha) |
+| `SNOW_CLIENT_CREDENTIAL` | `TRP_SNOW_CLIENT` |
+| `SNOW_JWT_KEY_ALIAS` | `trp_snow_jwt` |
+| `SNOW_JWT_KID` | O Key ID combinado (linha 11) |
+| `SNOW_JWT_SUB` | O usuário de integração (linha 12) |
+| `SNOW_ASSERTION_PARAM` | `assertion` |
+| `SNOW_JWT_AUD` | `-` (o script usa o client ID) |
+| `SNOW_JWT_ISS` | `-` (o script usa o client ID) |
+| `SNOW_TOKEN_SCOPE` | `-` |
+
+**Deploy** e confira **Started**.
 
 Cuidados:
 
-- Log level *Info*. O corpo do passo 3 contém client_secret e JWT.
-- O token dura cerca de 30 minutos e não tem refresh; cada ciclo do `IF_TRP_01` pede um novo.
-- Relógio: o ServiceNow rejeita JWT com `iat`/`exp` fora do horário. O script usa `nbf` = agora − 30 s para tolerar pequenas diferenças.
+- O corpo do passo 3 contém o client secret e o JWT. Mantenha o log em **Info**.
+- O token do ServiceNow dura cerca de 30 minutos e não tem renovação; cada ciclo pede um novo.
+- O JWT vale 5 minutos e leva um identificador único (`jti`), por causa da verificação de JTI do ServiceNow.
 
 ---
 
-## 9. IF_TRP_02_AdvanceTicket
+## 11. Passo 8 — IF_TRP_99_ConnectionTest
 
-O coração da automação: recebe um chamado e executa **um** passo da máquina de estados.
+iFlow temporário. Ele roda **uma vez a cada deploy** e prova, de uma só vez: Keystore, credencial, JWT, cadastro no ServiceNow, token, e gravação no chamado.
 
-**Sender:** ProcessDirect, Address `/trp/advance`.
+**Script:** [`scripts/TRP_99_ConnectionTest.groovy`](scripts/TRP_99_ConnectionTest.groovy)
 
-### 9.1 Processo principal
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 1 | Config | Content Modifier | Exchange Properties (Constant), cada uma = `{{NOME}}`: `EXPORT_MODE`, `CAS_DEV_URL`, `CAS_EXPORT_PATH`, `CAS_EXPORT_BODY_TEMPLATE`, `CAS_OPID_JSONPATH`, `CAS_STATUS_PATH`, `CAS_STATUS_JSONPATH`, `CAS_DONE_VALUES`, `CAS_FAILED_VALUES`, `CAS_TRID_JSONPATH`, `CTMS_URI`, `CTMS_QAS_NODE_ID`, `CTMS_NAMED_USER`, `CTMS_IMPORT_PATH`, `CTMS_ACTIONID_JSONPATH`, `CTMS_ACTION_PATH`, `CTMS_ACTION_STATUS_JSONPATH`, `CTMS_QUEUE_PATH`, `CPI_QAS_URL`, `TIMEOUT_EXPORT_MIN`, `TIMEOUT_WAITING_TR_MIN`, `TIMEOUT_IMPORT_MIN`, `TIMEOUT_DEPLOY_MIN`, `MAX_RETRIES` |
-| 2 | Preparar | Groovy Script | função `prepare` |
-| 3 | Estado | **Router** | Rotas na ordem da tabela 9.2 (Expression Type: Non-XML) |
-
-### 9.2 Rotas do Router "Estado"
-
-A ordem importa: o CPI avalia de cima para baixo.
-
-| Ordem | Rota | Condição | Passos da rota |
-| --- | --- | --- | --- |
-| 1 | Prazo vencido | `${property.TIMED_OUT} = 'true'` | Script `markTimeout` → Process Call `LIP_UpdateTicket` → End |
-| 2 | Campos inválidos | `${property.STATE} = 'PENDING' and ${property.VALIDATION_ERROR} != ''` | Script `markValidationError` → Process Call `LIP_UpdateTicket` → End |
-| 3 | Export por API | `${property.STATE} = 'PENDING' and ${property.EXPORT_MODE} = 'API'` | Script `buildExportRequest` → **HTTP POST** export (9.4-a) → Script `handleExportResponse` → Process Call `LIP_UpdateTicket` → End |
-| 4 | Contingência | `${property.STATE} = 'PENDING' and ${property.EXPORT_MODE} = 'MANUAL_TR'` | Script `markWaitingTr` → Process Call `LIP_UpdateTicket` → End |
-| 5 | Exportando | `${property.STATE} = 'EXPORTING'` | **HTTP GET** status do export (9.4-b) → Script `evaluateExportStatus` → Router "Próximo" (9.3) |
-| 6 | Aguardando request | `${property.STATE} = 'WAITING_TR'` | **HTTP GET** fila do nó (9.4-c) → Script `findTrByTicket` → Router "Próximo" (9.3) |
-| 7 | Importando | `${property.STATE} = 'IMPORTING'` | **HTTP GET** ação do cTMS (9.4-d) → Script `evaluateImport` → Router "Próximo" (9.3) |
-| 8 | Em deploy | `${property.STATE} = 'DEPLOYING'` | **HTTP GET** runtime QAS (9.4-f) → Script `evaluateDeploy` → Process Call `LIP_UpdateTicket` → End |
-| Default | Estado final | — | End (nada a fazer) |
-
-### 9.3 Router "Próximo" (depois das rotas 5, 6 e 7)
-
-Cada uma das três rotas tem o seu Router "Próximo" (o CPI não junta rotas):
-
-| Condição | Passos |
-| --- | --- |
-| `${property.NEXT} = 'START_IMPORT'` | Process Call `LIP_StartImport` → Process Call `LIP_UpdateTicket` → End |
-| `${property.NEXT} = 'START_DEPLOY'` | Process Call `LIP_StartDeploy` → Process Call `LIP_UpdateTicket` → End |
-| Default | Process Call `LIP_UpdateTicket` → End |
-
-### 9.4 Chamadas HTTP
-
-Em todas: **Request Reply → HTTP**, *Request Headers* = `Content-Type|Accept`, *Response Headers* vazio, *Timeout* 60000, *Authentication* = **OAuth2 Client Credentials** com a credencial indicada.
-
-| Ref. | Chamada | Method | Address | Query | Credencial | Throw Exception on Failure |
-| --- | --- | --- | --- | --- | --- | --- |
-| a | Criar export | POST | `${property.CAS_EXPORT_URL}` | — | `{{CRED_CAS_DEV}}` | ✔ |
-| b | Status do export | GET | `${property.CAS_STATUS_URL}` | — | `{{CRED_CAS_DEV}}` | ✔ |
-| c | Fila do nó QAS | GET | `${property.CTMS_QUEUE_URL}` | `{{CTMS_QUEUE_QUERY}}` | `{{CRED_CTMS}}` | ✔ |
-| d | Status do import | GET | `${property.CTMS_ACTION_URL}` | — | `{{CRED_CTMS}}` | ✔ |
-| e | Import por ID | POST | `${property.CTMS_IMPORT_URL}` | — | `{{CRED_CTMS}}` | ✔ |
-| f | Status no runtime | GET | `${property.CPI_QAS_URL}/api/v1/IntegrationRuntimeArtifacts(%27${property.ARTIFACT_ID}%27)` | — | `{{CRED_CPI_QAS}}` | **✘** (404 no início é normal; o script trata) |
-| g | Deploy | POST | `${property.CPI_QAS_URL}/api/v1/DeployIntegrationDesigntimeArtifact` | `Id=%27${property.ARTIFACT_ID}%27&Version=%27active%27` | `{{CRED_CPI_QAS}}` | ✔ |
-
-Nas chamadas `f` e `g`, antes do HTTP, um Content Modifier define o header `Accept` = `application/json` (as outras recebem os headers do script).
-
-### 9.5 Local Integration Processes
-
-**`LIP_StartImport`**
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 1 | Corpo do import | Groovy Script | função `buildImportRequest` |
-| 2 | Import por ID | Request Reply → HTTP | Chamada **e** da 9.4 |
-| 3 | Gravar ação | Groovy Script | função `handleImportResponse` |
-
-**`LIP_StartDeploy`**
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 1 | Header Accept | Content Modifier | Header `Accept` = `application/json` |
-| 2 | Deploy | Request Reply → HTTP | Chamada **g** da 9.4 |
-| 3 | Gravar estado | Groovy Script | função `handleDeployResponse` |
-
-**`LIP_UpdateTicket`**
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 1 | Precisa atualizar? | Router | Rota 1: `${property.UPDATE} = 'true'` → passos 2 e 3; Default → End |
-| 2 | Montar pedido | Groovy Script | função `buildUpdateRequest` |
-| 3 | Atualizar chamado | Request Reply → **ProcessDirect** | Address `/trp/snow-update` |
-
-### 9.6 Exception Subprocess
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 1 | Início | Error Start Event | |
-| 2 | Classificar erro | Groovy Script | função `handleError` (transitório → só soma tentativa; definitivo ou tentativas esgotadas → `FAILED`) |
-| 3 | Atualizar chamado | Request Reply → ProcessDirect | Address `/trp/snow-update` |
-| 4 | Fim | **End Message** | O chamador (`IF_TRP_01`) segue para o próximo chamado |
-
-Se o próprio ServiceNow estiver fora do ar, o passo 3 falha, o chamado fica no mesmo estado e é retomado no ciclo seguinte.
-
----
-
-## 10. IF_TRP_01_Orchestrator
-
-**Sender:** Timer.
-
-| # | Passo | Tipo | Configuração |
-| --- | --- | --- | --- |
-| 0 | Timer | Timer Start Event | *Schedule to Recur* · Recur Daily · Every 2 minutes · Between 07:00 e 22:00 · Time Zone `America/Sao_Paulo` (ajuste à janela de trabalho) |
-| 1 | Config | Content Modifier | Exchange Properties (Constant): `TRP_ENABLED`, `SNOW_HOST`, `SNOW_TABLE`, `SNOW_CAT_ITEM_SYSID`, `ACTIVE_STATES`, `SNOW_LIMIT`, cada um = `{{NOME}}` |
-| 2 | Ligado? | Router | Rota 1: `${property.TRP_ENABLED} != 'true'` → End; Default → segue |
-| 3 | Token | Request Reply → ProcessDirect | Address `/trp/snow-token` (corpo vazio) |
-| 4 | Guardar token | Groovy Script | `TRP_01_Orchestrator.groovy` · função `extractToken` |
-| 5 | Headers do GET | Content Modifier | Header `Authorization` = Expression `Bearer ${property.SNOW_TOKEN}`; header `Accept` = Constant `application/json` |
-| 6 | Buscar chamados | Request Reply → **HTTP** | Address: `https://${property.SNOW_HOST}/api/now/table/${property.SNOW_TABLE}` · Method: GET · Authentication: None · Query (abaixo) · Request Headers: `Authorization\|Accept` · Throw Exception on Failure: ✔ · Timeout: 60000 |
-| 7 | Limpar headers | Content Modifier | Delete header `Authorization` |
-| 8 | Um por linha | Groovy Script | função `ticketsToLines` |
-| 9 | Há chamados? | Router | Rota 1: `${property.TICKET_COUNT} = '0'` → End; Default → segue |
-| 10 | Separar | **Iterating Splitter** | Expression Type: **Line Break** · Grouping: 1 · Streaming: ✘ · Parallel Processing: ✘ · Stop On Exception: **✘** |
-| 11 | Preparar chamado | Groovy Script | função `lineToRequest` |
-| 12 | Avançar chamado | Request Reply → ProcessDirect | Address `/trp/advance` |
-| — | Fim | End | |
-
-Query do passo 6 (uma linha, sem espaços):
+### 11.1 Montagem
 
 ```text
-sysparm_query=cat_item=${property.SNOW_CAT_ITEM_SYSID}^u_cpi_transport_statusIN${property.ACTIVE_STATES}^ORDERBYsys_created_on&sysparm_fields=sys_id,number,u_cpi_transport_status,u_cpi_stage_since,u_cpi_retries,u_cpi_artifact_id,u_cpi_artifact_version,u_cpi_package_id,u_cpi_operation_id,u_cpi_tr_id,u_cpi_action_id&sysparm_display_value=false&sysparm_exclude_reference_link=true&sysparm_limit=${property.SNOW_LIMIT}
+Timer -> [1 Content Modifier] -> [2 Request Reply] -> [3 Script] -> [4 Router] --DO_UPDATE = true--> [5 Request Reply] -> [6 Script] -> End
+                                        |                              |                                  |
+                          ProcessDirect /trp/snow-token                +--(padrão)--> End        ProcessDirect /trp/snow-update
 ```
 
-`sysparm_display_value=false` faz as datas virem em UTC, no formato que o `IF_TRP_02` usa para calcular os prazos.
-
-**Exception Subprocess:** Error Start Event → End Message. Se o token ou a busca falharem, o ciclo termina e o próximo tenta de novo; os chamados não mudam de estado.
-
----
-
-## 11. Ordem de deploy e testes
-
-### 11.1 Ordem de deploy
-
-1. Security Material e Keystore (seção 4) — e o certificado cadastrado no ServiceNow.
-2. `IF_TRP_04_SnowUpdate`
-3. `IF_TRP_03_SnowToken`
-4. `IF_TRP_02_AdvanceTicket`
-5. `IF_TRP_01_Orchestrator` com `TRP_ENABLED = false`
-
-### 11.2 Testes
-
-| # | Teste | Como | Resultado esperado |
+| # | Nome do passo | Tipo | Configuração |
 | --- | --- | --- | --- |
-| 1 | Token | Ligar `TRP_ENABLED = true` sem chamados abertos; log *Trace* por 10 min | `IF_TRP_03` com sucesso; `IF_TRP_01` termina no Router "Há chamados?" |
-| 2 | Validação | Chamado com ID técnico inválido | `FAILED` com "Campos inválidos" e chamado atribuído ao suporte |
-| 3 | Contingência | `EXPORT_MODE = MANUAL_TR`; abrir chamado; clicar em Transport com o nº do chamado na descrição | `WAITING_TR` → `IMPORTING` → `DEPLOYING` → `SUCCESS`; chamado fechado |
-| 4 | Export por API | `EXPORT_MODE = API` (depois da confirmação, seção 13) | `PENDING` → `EXPORTING` → ... → `SUCCESS` |
-| 5 | Versão errada | Pedir uma versão que não existe em DEV | `FAILED` no export (ou prazo vencido) com o motivo |
-| 6 | iFlow com erro | iFlow de teste com endpoint inválido | `FAILED` com "ficou em ERROR em QAS" |
-| 7 | Prazo | Reduzir `TIMEOUT_DEPLOY_MIN` para 1 num teste | `FAILED` por prazo vencido |
-| 8 | Liga/desliga | `TRP_ENABLED = false` | Nenhum chamado processado |
+| 0 | Timer | Timer (Start) | Aba **Scheduler**: **Run Once** |
+| 1 | Config | Content Modifier | Exchange Property: `TEST_SYS_ID` = Constant `{{TEST_SYS_ID}}` |
+| 2 | Token | Request Reply → **ProcessDirect** | Receiver `TRP_03`. Address: `/trp/snow-token` |
+| 3 | Depois do token | Groovy Script | Script Function: `afterToken` |
+| 4 | Atualizar? | Router | Rota 1: Expression Type **Non-XML**, Condition `${property.DO_UPDATE} = 'true'`. Rota 2: **Default Route**, direto para um **End** |
+| 5 | Work note | Request Reply → **ProcessDirect** | Receiver `TRP_04`. Address: `/trp/snow-update` |
+| 6 | Depois da atualização | Groovy Script | Script Function: `afterUpdate` |
 
-Volte o log para *Info* depois dos testes.
+### 11.2 Teste 1 — só o token
+
+1. **Configure**: `TEST_SYS_ID` = `-`. **Deploy**.
+2. **Monitor Message Processing**: procure `IF_TRP_99_ConnectionTest`.
+3. **Sucesso:** status **Completed** e, nos detalhes da mensagem, em **Custom Headers**, `TRP_TokenTest = OK - token com N caracteres, expira em N s`.
+4. **Falha:** abra a mensagem com erro (a do `IF_TRP_03`), leia o texto do erro e vá para a seção 16.
+
+### 11.3 Teste 2 — token e gravação
+
+1. **Configure**: `TEST_SYS_ID` = sys_id do chamado de teste (linha 14). **Deploy** de novo.
+2. **Sucesso:** Custom Header `TRP_UpdateTest = OK` e, no chamado, uma work note "[Transporte CPI] Teste de conexão do CPI. Pode ignorar.".
+3. Confira no chamado que nenhum outro campo mudou.
+
+Depois dos dois testes, **Undeploy** o `IF_TRP_99_ConnectionTest`. Mantenha-o no pacote: ele serve de novo quando o certificado for trocado.
 
 ---
 
-## 12. Operação
+## 12. Passo 9 — IF_TRP_02_AdvanceTicket
+
+O coração da automação: recebe um chamado e executa **um** passo.
+
+**Script:** [`scripts/TRP_02_AdvanceTicket.groovy`](scripts/TRP_02_AdvanceTicket.groovy)
+
+### 12.1 Desenho
+
+O script `prepare` lê o chamado e grava a propriedade `ROUTE`. O primeiro roteador só olha esse valor. Os casos que não precisam de chamada HTTP (prazo vencido, campos inválidos, pedir o clique ao dev) o próprio `prepare` resolve, com `ROUTE = DONE`.
+
+```text
+Sender --ProcessDirect /trp/advance--> Start
+  -> [1 Config] -> [2 Script prepare] -> [3 Router "Rota"]
+        |-- CHECK_QUEUE  -> [HTTP GET fila]      -> [Script findTrByTicket]  --+
+        |-- CHECK_IMPORT -> [HTTP GET ação]      -> [Script evaluateImport]  --+
+        |-- CHECK_DEPLOY -> [HTTP GET runtime]   -> [Script evaluateDeploy]  --+
+        |-- (Etapa B) EXPORT, CHECK_EXPORT                                   --+
+        |-- padrão (DONE) ---------------------------------------------------+
+                                                                              v
+  -> [4 Router "Próximo"]
+        |-- START_IMPORT -> [Script buildImportRequest] -> [HTTP POST import] -> [Script handleImportResponse] --+
+        |-- START_DEPLOY -> [HTTP POST deploy] -> [Script handleDeployResponse]                               --+
+        |-- padrão ---------------------------------------------------------------------------------------------+
+                                                                                                                 v
+  -> [5 Router "Atualizar?"]
+        |-- UPDATE = true -> [Script buildUpdateRequest] -> [ProcessDirect /trp/snow-update] -> End
+        |-- padrão -> End
+
+Exception Subprocess:  Error Start -> [Script handleError] -> [ProcessDirect /trp/snow-update] -> End Message
+```
+
+**Juntar rotas:** as rotas de um roteador podem terminar no mesmo passo seguinte. Basta arrastar a seta do último passo de cada rota até o próximo roteador. Se o editor não permitir no seu tenant, repita o roteador seguinte no fim de cada rota.
+
+### 12.2 Passos 1 e 2
+
+Sender: ProcessDirect, Address `/trp/advance`.
+
+**1 — Content Modifier "Config"** (aba Exchange Property, Source Type = Constant):
+
+| Name | Source Value | Bloco |
+| --- | --- | --- |
+| `EXPORT_MODE` | `{{EXPORT_MODE}}` | A — obrigatório |
+| `CTMS_URI` | `{{CTMS_URI}}` | A — obrigatório |
+| `CTMS_QAS_NODE_ID` | `{{CTMS_QAS_NODE_ID}}` | A — obrigatório |
+| `CTMS_NAMED_USER` | `{{CTMS_NAMED_USER}}` | A — recomendado |
+| `MAX_RETRIES` | `{{MAX_RETRIES}}` | A — recomendado |
+| `TIMEOUT_WAITING_TR_MIN` | `{{TIMEOUT_WAITING_TR_MIN}}` | A — recomendado |
+| `TIMEOUT_IMPORT_MIN` | `{{TIMEOUT_IMPORT_MIN}}` | A — recomendado |
+| `TIMEOUT_DEPLOY_MIN` | `{{TIMEOUT_DEPLOY_MIN}}` | A — recomendado |
+
+Os parâmetros dos blocos B (ajustes do cTMS) e C (Etapa B) estão na seção 19. Só crie os do bloco B se o Passo 2 mostrou algo diferente do padrão.
+
+**2 — Groovy Script "Preparar"**: Script Function `prepare`.
+
+### 12.3 Passo 3 — Router "Rota"
+
+Para cada rota: clique na seta que sai do roteador → aba **Processing** → Expression Type **Non-XML** → Condition Expression. Marque a última como **Default Route**.
+
+| Ordem | Nome da rota | Condition Expression | Passos da rota |
+| --- | --- | --- | --- |
+| 1 | Fila | `${property.ROUTE} = 'CHECK_QUEUE'` | Request Reply **A** → Script `findTrByTicket` |
+| 2 | Import | `${property.ROUTE} = 'CHECK_IMPORT'` | Request Reply **B** → Script `evaluateImport` |
+| 3 | Deploy | `${property.ROUTE} = 'CHECK_DEPLOY'` | Request Reply **C** → Script `evaluateDeploy` |
+| 4 | Padrão | Default Route | Nenhum (seta direto para o roteador "Próximo") |
+
+As rotas `EXPORT` e `CHECK_EXPORT` entram na Etapa B (seção 15).
+
+### 12.4 Passo 4 — Router "Próximo"
+
+| Ordem | Nome da rota | Condition Expression | Passos da rota |
+| --- | --- | --- | --- |
+| 1 | Iniciar import | `${property.NEXT} = 'START_IMPORT'` | Script `buildImportRequest` → Request Reply **D** → Script `handleImportResponse` |
+| 2 | Iniciar deploy | `${property.NEXT} = 'START_DEPLOY'` | Request Reply **E** → Script `handleDeployResponse` |
+| 3 | Padrão | Default Route | Nenhum (seta direto para o roteador "Atualizar?") |
+
+### 12.5 Passo 5 — Router "Atualizar?"
+
+| Ordem | Nome da rota | Condition Expression | Passos da rota |
+| --- | --- | --- | --- |
+| 1 | Atualizar | `${property.UPDATE} = 'true'` | Script `buildUpdateRequest` → Request Reply **F** → End |
+| 2 | Padrão | Default Route | End |
+
+### 12.6 As chamadas (Request Reply)
+
+Crie um **Receiver** para cada chamada. Em todas as chamadas HTTP: Proxy Type **Internet**, Timeout **60000**, Response Headers **vazio**.
+
+| Ref. | Receiver | Adapter | Address | Query | Method | Authentication / Credential Name | Request Headers | Throw Exception on Failure |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A | `cTMS_Fila` | HTTP | `${property.CTMS_QUEUE_URL}` | Vazio | GET | OAuth2 Client Credentials / `{{CRED_CTMS}}` | `Accept` | Marcado |
+| B | `cTMS_Acao` | HTTP | `${property.CTMS_ACTION_URL}` | Vazio | GET | OAuth2 Client Credentials / `{{CRED_CTMS}}` | `Accept` | Marcado |
+| C | `CPI_QAS_Runtime` | HTTP | `{{CPI_QAS_URL}}/api/v1/IntegrationRuntimeArtifacts(%27${property.ARTIFACT_ID}%27)` | Vazio | GET | OAuth2 Client Credentials / `{{CRED_CPI_QAS}}` | `Accept` | **Desmarcado** |
+| D | `cTMS_Import` | HTTP | `${property.CTMS_IMPORT_URL}` | Vazio | POST | OAuth2 Client Credentials / `{{CRED_CTMS}}` | `Content-Type\|Accept` | Marcado |
+| E | `CPI_QAS_Deploy` | HTTP | `{{CPI_QAS_URL}}/api/v1/DeployIntegrationDesigntimeArtifact` | `Id=%27${property.ARTIFACT_ID}%27&Version=%27active%27` | POST | OAuth2 Client Credentials / `{{CRED_CPI_QAS}}` | `Accept` | Marcado |
+| F | `TRP_04` | ProcessDirect | `/trp/snow-update` | — | — | — | — | — |
+
+Observações:
+
+- **C fica com "Throw Exception on Failure" desmarcado** de propósito: logo depois do deploy o iFlow ainda não aparece no runtime e a API responde 404. O script trata isso como "espere o próximo ciclo".
+- `%27` é a aspa simples codificada. Digite exatamente assim.
+- Na chamada **A**, o campo Query pode receber um filtro (por exemplo `status=in`) se o Teste 2 do Passo 2 mostrou que a fila devolve muitas requests antigas e a API aceitar o filtro. O script já ignora requests que não estão importáveis, com ou sem filtro.
+
+### 12.7 Exception Subprocess
+
+Adicione um **Exception Subprocess** dentro da caixa Integration Process:
+
+| # | Passo | Tipo | Configuração |
+| --- | --- | --- | --- |
+| 1 | Início | Error Start Event | Já vem no subprocesso |
+| 2 | Classificar erro | Groovy Script | Script Function: `handleError` |
+| 3 | Atualizar chamado | Request Reply → ProcessDirect | Receiver `TRP_04_Erro`. Address: `/trp/snow-update` |
+| 4 | Fim | **End Message** | Não use Error End: o orquestrador precisa seguir para o próximo chamado |
+
+O que o `handleError` faz:
+
+- **Erro passageiro** (HTTP 408, 425, 429, 500, 502, 503, 504 ou falha de rede): soma uma tentativa no chamado e mantém o estado. O próximo ciclo tenta de novo. Na quinta tentativa (`MAX_RETRIES`), vira `FAILED`.
+- **Erro definitivo** (400, 401, 403, 404 e outros): `FAILED`, com o motivo em `u_cpi_message` e nas work notes.
+- O erro também aparece no monitor do CPI, em **Custom Headers → TRP_Error**.
+
+### 12.8 Runtime, parâmetros e deploy
+
+**Allowed Header(s)**: `X-Trp-Snow-Token`. **Save → Configure**:
+
+| Parâmetro | Valor na Etapa A |
+| --- | --- |
+| `EXPORT_MODE` | `MANUAL_TR` |
+| `CTMS_URI` | `uri` do cTMS (linha 1 da folha) |
+| `CTMS_QAS_NODE_ID` | ID numérico do nó de QAS (linha 4) |
+| `CTMS_NAMED_USER` | `cpi-orquestracao` |
+| `MAX_RETRIES` | `5` |
+| `TIMEOUT_WAITING_TR_MIN` | `60` |
+| `TIMEOUT_IMPORT_MIN` | `15` |
+| `TIMEOUT_DEPLOY_MIN` | `10` |
+| `CPI_QAS_URL` | `url` da API do CPI QAS (linha 5), sem barra no fim |
+| `CRED_CTMS` | `TRP_CTMS` |
+| `CRED_CPI_QAS` | `TRP_CPI_QAS` |
+
+**Deploy** e confira **Started**.
+
+### 12.9 Como o deploy é conferido
+
+O `evaluateDeploy` só grava `SUCCESS` quando as três coisas são verdade:
+
+1. o iFlow está `STARTED` no runtime de QAS;
+2. a data do deploy (`DeployedOn`) é **posterior** ao pedido de deploy deste chamado, com 2 minutos de tolerância. Isso evita confundir com um deploy antigo do mesmo iFlow;
+3. a versão em runtime é a que o chamado pediu.
+
+Se o iFlow subiu, mas numa **versão diferente** da pedida, o chamado vira `FAILED` com a explicação. Isso acontece quando o dev informa uma versão e o DEV tinha outra salva na hora do Transport: o transporte leva o que está salvo no DEV.
+
+---
+
+## 13. Passo 10 — IF_TRP_01_Orchestrator
+
+**Script:** [`scripts/TRP_01_Orchestrator.groovy`](scripts/TRP_01_Orchestrator.groovy)
+
+### 13.1 Montagem
+
+```text
+Timer -> [1 Config] -> [2 Router "Ligado?"] --TRP_ENABLED diferente de true--> End
+                              |
+                           (padrão)
+                              v
+   [3 Request Reply /trp/snow-token] -> [4 Script prepareSearch] -> [5 Request Reply HTTP GET chamados]
+   -> [6 Script ticketsToLines] -> [7 Router "Há chamados?"] --TICKET_COUNT = 0--> End
+                                          |
+                                       (padrão)
+                                          v
+   [8 Iterating Splitter] -> [9 Script lineToRequest] -> [10 Request Reply /trp/advance] -> End
+```
+
+| # | Nome do passo | Tipo | Configuração |
+| --- | --- | --- | --- |
+| 0 | Timer | Timer (Start) | Tabela 13.2 |
+| 1 | Config | Content Modifier | Exchange Property (Constant): `TRP_ENABLED` = `{{TRP_ENABLED}}`; `SNOW_CAT_ITEM_SYSID` = `{{SNOW_CAT_ITEM_SYSID}}`; `SNOW_LIMIT` = `{{SNOW_LIMIT}}` |
+| 2 | Ligado? | Router | Rota 1 (Non-XML): `${property.TRP_ENABLED} != 'true'` → End. Rota 2: Default Route → passo 3 |
+| 3 | Token | Request Reply → ProcessDirect | Receiver `TRP_03`. Address `/trp/snow-token` |
+| 4 | Preparar busca | Groovy Script | Script Function: `prepareSearch` |
+| 5 | Buscar chamados | Request Reply → HTTP | Tabela 13.3 |
+| 6 | Um por linha | Groovy Script | Script Function: `ticketsToLines` |
+| 7 | Há chamados? | Router | Rota 1 (Non-XML): `${property.TICKET_COUNT} = '0'` → End. Rota 2: Default Route → passo 8 |
+| 8 | Separar | Iterating Splitter | Tabela 13.4 |
+| 9 | Preparar chamado | Groovy Script | Script Function: `lineToRequest` |
+| 10 | Avançar chamado | Request Reply → ProcessDirect | Receiver `TRP_02`. Address `/trp/advance` |
+
+Não adicione Exception Subprocess neste iFlow. Se o token ou a busca falharem, a mensagem fica como **Failed** no monitor (é o alerta que você quer ver), nenhum chamado muda de estado e o próximo ciclo tenta de novo.
+
+### 13.2 Timer (aba Scheduler)
+
+| Campo | Valor |
+| --- | --- |
+| Tipo | **Schedule to Recur** |
+| Schedule Recurrence | Daily |
+| Every | 2 min (se não existir essa opção, use 5 min) |
+| Between | 07:00 e 22:00 (ajuste ao horário de trabalho dos devs) |
+| Time Zone | (UTC-03:00) Brasília / São Paulo |
+
+### 13.3 Adapter HTTP do passo 5
+
+| Campo | Valor |
+| --- | --- |
+| Address | `https://{{SNOW_HOST}}/api/now/table/{{SNOW_TABLE}}` |
+| Query | `${property.SNOW_QUERY}` |
+| Proxy Type | Internet |
+| Method | GET |
+| Authentication | None |
+| Timeout (in ms) | 60000 |
+| Throw Exception on Failure | Marcado |
+| Request Headers | `Authorization\|Accept` |
+| Response Headers | Vazio |
+
+O script `prepareSearch` monta a query já codificada. Ela pede só os chamados do item de catálogo do transporte que estão num estado em andamento, do mais antigo para o mais novo, com datas em UTC.
+
+### 13.4 Iterating Splitter do passo 8
+
+| Campo | Valor |
+| --- | --- |
+| Expression Type | **Line Break** |
+| Grouping | 1 |
+| Streaming | Desmarcado |
+| Parallel Processing | Desmarcado |
+| Stop on Exception | **Desmarcado** (um chamado com erro não trava os outros) |
+
+### 13.5 Runtime, parâmetros e deploy
+
+**Allowed Header(s)**: `X-Trp-Snow-Token`. **Save → Configure**:
+
+| Parâmetro | Valor |
+| --- | --- |
+| `TRP_ENABLED` | `false` (por enquanto) |
+| `SNOW_HOST` | Host do ServiceNow |
+| `SNOW_TABLE` | `sc_req_item` |
+| `SNOW_CAT_ITEM_SYSID` | sys_id do item de catálogo (linha 13 da folha) |
+| `SNOW_LIMIT` | `20` |
+
+**Deploy** e confira **Started**. Com `TRP_ENABLED = false`, cada ciclo termina no primeiro roteador, sem chamar nada.
+
+**Só pode existir um orquestrador ligado.** Se o mesmo pacote for implantado em outro tenant com `TRP_ENABLED = true`, os dois vão processar os mesmos chamados.
+
+---
+
+## 14. Passo 11 — Testes ponta a ponta
+
+Deixe o log do `IF_TRP_02` em **Debug** durante os testes e volte para **Info** no fim. Para achar as execuções de um chamado: **Monitor Message Processing**, filtro por ID com o número do chamado (o script grava o número como Application ID).
+
+| # | Teste | Como fazer | Resultado esperado |
+| --- | --- | --- | --- |
+| 1 | Ligar sem chamados | Feche ou conclua os chamados de teste. `TRP_ENABLED = true`, **Deploy** | A cada 2 min: `IF_TRP_01` Completed e `IF_TRP_03` Completed. Nenhuma execução do `IF_TRP_02` |
+| 2 | Campos inválidos | Abra um chamado com versão `abc` (se a validação do formulário deixar) ou altere a coluna `u_cpi_artifact_version` à mão para `abc` e o status para `PENDING` | No ciclo seguinte: `FAILED`, `u_cpi_message` = "Campos inválidos…", chamado atribuído ao suporte |
+| 3 | Caminho feliz | Salve uma versão do iFlow de teste em DEV. Abra o chamado. Clique em **Transport** com o nº do chamado na descrição | `PENDING` → `WAITING_TR` → `IMPORTING` → `DEPLOYING` → `SUCCESS`. Work notes de cada passo. iFlow em QAS na versão pedida. Chamado fechado |
+| 4 | Chamado sem clique | Abra um chamado e **não** clique em Transport. Para não esperar 60 min, use `TIMEOUT_WAITING_TR_MIN = 4` | `WAITING_TR` e, depois do prazo, `FAILED` com "Prazo do estado WAITING_TR vencido" |
+| 5 | Versão diferente | Abra um chamado pedindo `9.9.9` e faça o Transport da versão real | `FAILED` com "subiu em QAS na versão X, mas o chamado pediu 9.9.9" |
+| 6 | iFlow com erro | Transporte um iFlow de teste que não sobe (por exemplo, com uma credencial inexistente num adapter de polling) | `FAILED` com "ficou em ERROR em QAS" |
+| 7 | Request de outro dev | Deixe na fila uma request sem nº de chamado e rode o teste 3 de novo | Só a request do chamado é importada. A outra continua na fila |
+| 8 | Desligar | `TRP_ENABLED = false`, **Deploy** | Chamados novos ficam em `PENDING` até religar |
+
+Em cada teste, confira três lugares: o **chamado** (status, `u_cpi_tr_id`, work notes), o **cTMS** (a request saiu da fila; log da ação) e o **CPI QAS** (versão e status em **Manage Integration Content**).
+
+Aprovados os testes 1 a 7: `TIMEOUT_WAITING_TR_MIN` de volta para `60`, log em **Info**, `TRP_ENABLED = true`, e libere o item de catálogo para um time piloto antes de abrir para todos.
+
+---
+
+## 15. Etapa B — Ligar o export por API
+
+Só depois de: (1) migração para o Content Agent concluída ([`../MIGRACAO-CPI.md`](../MIGRACAO-CPI.md)); (2) API de export do Content Agent confirmada e testada à mão (seção 18, ponto 1).
+
+### 15.1 Preparação
+
+1. No subaccount onde está a instância `standard` do Content Agent: crie a service key `key-cas-dev-trp`.
+2. No CPI de orquestração: crie a credencial **OAuth2 Client Credentials** `TRP_CAS_DEV` com o token URL, client ID e secret dessa key.
+3. Se a migração criou um nó de QAS novo (`QAS_CAS`), pegue o ID dele (Teste 1 do Passo 2).
+
+### 15.2 Mudanças no `IF_TRP_02`
+
+**No Content Modifier "Config"**, acrescente as propriedades do bloco C (seção 19.3).
+
+**No Router "Rota"**, acrescente duas rotas, antes da rota padrão, e termine as duas no roteador "Próximo":
+
+| Nome da rota | Condition Expression | Passos da rota |
+| --- | --- | --- |
+| Exportar | `${property.ROUTE} = 'EXPORT'` | Script `buildExportRequest` → Request Reply **G** → Script `handleExportResponse` |
+| Export pronto? | `${property.ROUTE} = 'CHECK_EXPORT'` | Request Reply **H** → Script `evaluateExportStatus` |
+
+| Ref. | Receiver | Address | Method | Credential Name | Request Headers | Throw Exception on Failure |
+| --- | --- | --- | --- | --- | --- | --- |
+| G | `CAS_Export` | `${property.CAS_EXPORT_URL}` | POST | `{{CRED_CAS_DEV}}` | `Content-Type\|Accept` | Marcado |
+| H | `CAS_Status` | `${property.CAS_STATUS_URL}` | GET | `{{CRED_CAS_DEV}}` | `Accept` | Marcado |
+
+### 15.3 Virada
+
+1. **Configure**: preencha o bloco C, `EXPORT_MODE = API`, `CTMS_QAS_NODE_ID` = nó novo, `TIMEOUT_EXPORT_MIN = 15`.
+2. **Deploy**.
+3. Teste com um chamado **sem** clicar em Transport: `PENDING` → `EXPORTING` → `IMPORTING` → `DEPLOYING` → `SUCCESS`.
+4. Atualize o texto de ajuda do item de catálogo: o dev só abre o chamado.
+
+Para voltar à Etapa A a qualquer momento: `EXPORT_MODE = MANUAL_TR` e **Deploy**.
+
+---
+
+## 16. Problemas comuns e soluções
+
+Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) ou no monitor do CPI (mensagem com status Failed, ou **Custom Headers → TRP_Error**).
+
+### 16.1 Token e ServiceNow
+
+| Sintoma | Causa provável | O que fazer |
+| --- | --- | --- |
+| "Credencial TRP_SNOW_CLIENT não encontrada no Security Material" | Credencial não implantada, ou nome diferente do parâmetro `SNOW_CLIENT_CREDENTIAL` | Confira o nome e o status **Deployed** |
+| "Alias … não é uma chave privada no Keystore" | Alias errado, ou a entrada é só um certificado | A entrada precisa ser do tipo **Key Pair** e o alias igual ao `SNOW_JWT_KEY_ALIAS` |
+| HTTP 401 no pedido de token, `invalid_client` | Client ID ou secret errados | Refaça a credencial `TRP_SNOW_CLIENT` |
+| HTTP 400 ou 401 no pedido de token, `invalid_grant` ou erro de JWT | Uma das checagens do JWT falhou | Confira, nesta ordem: `SNOW_JWT_KID` igual ao Kid do Verifier Map; certificado cadastrado é o do alias `trp_snow_jwt`; `SNOW_JWT_SUB` é um usuário ativo e bate com o *User Field*; `aud` e `iss` iguais ao Client ID (deixe `SNOW_JWT_AUD` e `SNOW_JWT_ISS` como `-`). Peça ao time do ServiceNow o log do erro |
+| "Resposta de token sem access_token" | O servidor respondeu 200 sem token | O texto do erro traz o `error` devolvido. Se o servidor de autorização for o IdP corporativo, confira `SNOW_TOKEN_URL`, `SNOW_ASSERTION_PARAM` (`client_assertion`), `SNOW_JWT_AUD` e `SNOW_TOKEN_SCOPE` |
+| Token ok, mas a busca dá 401 | O token não vale para a Table API (escopo) | Time do ServiceNow: escopo e *auth scope* do cliente OAuth |
+| Token ok, mas a busca ou a gravação dá 403 | ACL ou role do usuário de integração | Seção 6.6 |
+| A busca volta vazia com chamado aberto | ACL esconde o registro; `SNOW_CAT_ITEM_SYSID` errado; o flow não gravou `PENDING`; fora do horário do Timer | Confira cada item. Teste a mesma busca no REST API Explorer do ServiceNow com o usuário de integração |
+| Chamado vai para `FAILED` com "Campos inválidos" e os campos estão preenchidos no formulário | As colunas `u_cpi_artifact_id`, `u_cpi_artifact_version`, `u_cpi_package_id` estão vazias ou com nome diferente | O flow precisa copiar as variáveis para as colunas (6.4, passo 2). Nomes exatos da 6.2 |
+| HTTP 404 ao gravar | `SNOW_TABLE` errado, ou o método PATCH não é aceito | Confira a tabela; troque para PUT (9.2) |
+| O prazo estoura na hora, ou nunca estoura | `u_cpi_stage_since` gravado fora de UTC | O CPI grava em UTC pela Table API. Não preencha esse campo por script com horário local |
+
+### 16.2 Entre iFlows
+
+| Sintoma | Causa provável | O que fazer |
+| --- | --- | --- |
+| "Token do ServiceNow ausente (header X-Trp-Snow-Token)" | O header não chegou ao iFlow chamado | **Runtime Configuration → Allowed Header(s)** = `X-Trp-Snow-Token` nos iFlows 02 e 04 |
+| Erro de ProcessDirect dizendo que não há consumidor para o endereço | O iFlow de destino não está **Started**, ou o Address tem diferença de letra | Confira os três endereços: `/trp/snow-token`, `/trp/snow-update`, `/trp/advance` |
+| Erro de script dizendo que o método não existe | Nome errado em **Script Function** | Compare com o nome da tabela do passo; maiúsculas contam |
+| Erro "unable to resolve class" no script | O conteúdo do script não foi colado inteiro | Recole o arquivo completo, incluindo os `import` |
+| O roteador falha por não achar rota | Faltou marcar a **Default Route** | Marque a rota padrão em cada roteador |
+| `IF_TRP_02` nunca é chamado | `TRP_ENABLED` diferente de `true`; busca vazia | Veja a execução do `IF_TRP_01`: em qual roteador terminou |
+
+### 16.3 cTMS
+
+| Sintoma | Causa provável | O que fazer |
+| --- | --- | --- |
+| HTTP 401 | Credencial `TRP_CTMS` com token URL sem `/oauth/token`, ou secret trocado | Refaça com os dados da `key-tms-trp` |
+| HTTP 403 | Key de uma instância que não é plano `standard` | Crie a key na instância `standard` |
+| HTTP 404 na fila, no import ou na ação | `CTMS_QAS_NODE_ID` errado, ou caminho diferente na sua versão da API | Repita os testes do Passo 2 e ajuste os parâmetros do bloco B |
+| Fica em `WAITING_TR` e a request está na fila | A descrição da request não contém o número do chamado; a request está em outro nó; o status dela não é "importável" | Compare a descrição com o número (RITM…); confira o nó; veja o `status` no Teste 2 e ajuste `CTMS_IMPORTABLE_VALUES` |
+| `FAILED` "Há mais de uma request importável na fila com …" | O dev clicou em Transport duas vezes com o mesmo número | Apague a request sobrando no cTMS e volte o status do chamado para `WAITING_TR` |
+| `FAILED` "cTMS não devolveu o ID da ação de import" | O campo do ID da ação tem outro nome | Parâmetro `CTMS_ACTIONID_JSONPATH` |
+| Fica em `IMPORTING` até o prazo | O status final da ação tem um valor que o script não conhece | Veja o valor no Teste 4 e ajuste `CTMS_ACTION_OK_VALUES` |
+| `FAILED` "Import … terminou em ERROR" | O import falhou no destino | Abra o log da ação no cTMS (o ID está em `u_cpi_action_id`) |
+
+### 16.4 Deploy no CPI QAS
+
+| Sintoma | Causa provável | O que fazer |
+| --- | --- | --- |
+| HTTP 401 no deploy ou na consulta | Credencial `TRP_CPI_QAS` | Refaça com a `key-pi-api-qas-deploy` |
+| HTTP 403 no deploy | Falta `WorkspaceArtifactsDeploy` | Atualize a instância `pi-api-qas-deploy` e crie uma key nova |
+| HTTP 403 no deploy falando de **CSRF** | O tenant exige token CSRF mesmo com OAuth (não é o comum) | Antes do deploy, faça um GET em `{{CPI_QAS_URL}}/api/v1/` com o header `X-CSRF-Token: Fetch`, e mande no POST o `X-CSRF-Token` devolvido e os cookies. Me avise que eu acrescento esse passo ao script |
+| HTTP 404 no deploy | O iFlow não existe no workspace de QAS com esse ID | O ID do chamado é o técnico? O import trouxe mesmo o pacote? |
+| HTTP 403 na consulta do runtime | Falta `MonitoringDataRead` | Atualize a instância e crie uma key nova |
+| `FAILED` "ficou em ERROR em QAS" | O iFlow não iniciou em QAS | **Manage Integration Content** no CPI QAS mostra o motivo (credencial, endpoint, parâmetro de QAS) |
+| `FAILED` "subiu em QAS na versão X, mas o chamado pediu Y" | A versão salva em DEV na hora do Transport não era a do chamado | Salve a versão certa em DEV, novo Transport, novo chamado |
+| Fica em `DEPLOYING` até o prazo, com o iFlow `STARTED` | O deploy não mudou a data (`DeployedOn`), ou os relógios diferem mais de 2 minutos | Veja `DeployedOn` no Teste 5. Se o deploy realmente aconteceu, me mande o valor para ajustarmos a tolerância |
+
+---
+
+## 17. Operação
 
 | Situação | O que fazer |
 | --- | --- |
-| Parar tudo | `TRP_ENABLED = false` no `IF_TRP_01` e redeploy |
-| Achar a execução de um chamado | Monitor de mensagens, filtro **Application ID** = número do chamado (o script grava `SAP_ApplicationID`) |
-| Chamado em `FAILED` | Ler `u_cpi_message` e as work notes; corrigir; voltar `u_cpi_transport_status` para `PENDING` (ou para `IMPORTING`/`DEPLOYING` se a request já existe e só o passo seguinte falhou) |
-| Chamado parado | Ver se o timer está rodando e se o ciclo terminou com erro; checar o horário configurado no Timer |
-| Token negado (401) | Validade do certificado, `kid`, client_id/secret e relógio |
-| Troca de certificado | Criar par novo no Keystore → cadastrar no ServiceNow como segundo verifier map → trocar `SNOW_JWT_KEY_ALIAS` e `SNOW_JWT_KID` → remover o antigo |
+| Parar tudo | `TRP_ENABLED = false` no `IF_TRP_01` (**Configure**) e **Deploy** |
+| Achar as execuções de um chamado | **Monitor Message Processing**, busca pelo número do chamado |
+| Reprocessar um chamado em `FAILED` | Corrija a causa. Depois altere `u_cpi_transport_status` no chamado: `PENDING` recomeça do início; `WAITING_TR` procura a request de novo; `IMPORTING` ou `DEPLOYING` refaz só a checagem. Ao voltar para um estado com prazo, atualize também `u_cpi_stage_since` para agora |
+| Chamado parado num estado | O Timer está rodando? O ciclo do `IF_TRP_01` terminou com erro? Está dentro do horário configurado? |
+| Uma atualização no ServiceNow falhou depois de o import ter sido iniciado | No ciclo seguinte o CPI tenta iniciar o import de novo e o cTMS pode recusar. O chamado vai para `FAILED`. Confira no cTMS se a request foi importada e ajuste o status do chamado para `IMPORTING` (com `u_cpi_action_id`) ou `DEPLOYING` |
+| Trocar o certificado do JWT | Crie um par novo no Keystore (alias novo). Entregue o certificado; o ServiceNow cadastra um **segundo** Verifier Map com Kid novo. Troque `SNOW_JWT_KEY_ALIAS` e `SNOW_JWT_KID`, **Deploy**, rode o `IF_TRP_99`. Só então remova o par e o Verifier Map antigos |
+| Trocar uma service key | Crie a key nova, atualize a credencial no Security Material (**Deploy** da credencial), teste, e só então apague a key antiga no BTP |
+| Mudar um script | Edite o arquivo em `scripts/`, rode os testes locais ([`tests/README.md`](tests/README.md)), cole no iFlow e **Deploy** |
 
 ---
 
-## 13. Pontos a confirmar
+## 18. Pontos a confirmar
 
-| # | Ponto | Impacto | Onde confirmar |
+| # | Ponto | Impacto | Como confirmar |
 | --- | --- | --- | --- |
-| 1 | API de export do Content Agent (caminho, corpo, status, ID da request) | Parâmetros da 6.2; sem ela, usar `MANUAL_TR` | help.sap.com → Content Agent → "Consuming APIs"; api.sap.com |
-| 2 | Import por ID e status da ação no cTMS (caminhos e campos) | Parâmetros da 6.3 | api.sap.com → Cloud Transport Management (`TmsForCloudPub`) |
-| 3 | Servidor de autorização (OAuth do ServiceNow ou IdP corporativo), nome do parâmetro (`assertion` ou `client_assertion`) e escopo | Parâmetros da 6.1 | Time do ServiceNow / Hub de Arquitetura |
-| 4 | Keystore do CPI aceito como cofre ou HSM obrigatório | Se HSM: o script `buildTokenRequest` passa a enviar `header.payload` ao HSM e receber a assinatura | Segurança da Informação |
-| 5 | CSRF nas chamadas POST à OData API do CPI com OAuth client credentials | Se exigido, adicionar um GET com `X-CSRF-Token: Fetch` antes do deploy | Teste 4 da 11.2 |
-| 6 | Nome exato do campo de usuário (*User Field*) no ServiceNow | `SNOW_JWT_SUB` | Time do ServiceNow |
+| 1 | API de export do Content Agent: caminho, corpo, status e onde vem o ID da request | Só a Etapa B. Parâmetros do bloco C | Com o seu login: guia do Content Agent → "Consuming APIs"; api.sap.com |
+| 2 | Caminhos e campos da API v2 do cTMS (fila, import por ID, ação) | Etapa A. O script usa os caminhos padrão | Passo 2 deste guia. Se diferir, bloco B |
+| 3 | Servidor de autorização do ServiceNow (o próprio ServiceNow ou o IdP corporativo), nome do parâmetro (`assertion` ou `client_assertion`) e escopo | Parâmetros do `IF_TRP_03` | Time do ServiceNow / Hub de Arquitetura |
+| 4 | Keystore do CPI aceito como cofre da chave, ou HSM obrigatório | Se HSM: a assinatura do JWT sai do script e vira uma chamada ao HSM | Segurança da Informação |
+| 5 | Método PATCH disponível no adapter HTTP do tenant | Passo 6. Alternativa: PUT | Lista de métodos do adapter |
+| 6 | Intervalo de 2 minutos no Timer | Passo 10. Alternativa: 5 minutos | Lista de opções do Timer |
+| 7 | Juntar rotas de um roteador no mesmo passo | Passo 9. Alternativa: repetir o roteador em cada rota | Editor do tenant |
+| 8 | Repasse do header `X-Trp-Snow-Token` pelo ProcessDirect | Todos. Já prevenido com Allowed Header(s) | Passo 8 |
+| 9 | Deploy por API sem token CSRF com OAuth | Passo 9. Alternativa na seção 16.4 | Teste 6 do Passo 2 |
+
+O que **não** foi testado: a montagem dos iFlows num tenant real, as chamadas reais ao ServiceNow, ao cTMS e ao CPI QAS. O que **foi** testado: a lógica dos scripts, fora do CPI, com 82 verificações (Groovy 2.4 e 4), usando versões simuladas das APIs do CPI.
 
 ---
 
-## 14. Anexo — scripts Groovy completos
+## 19. Referência de parâmetros
 
-Os mesmos arquivos de [`scripts/`](scripts/), reproduzidos aqui para leitura.
+### 19.1 Bloco A — usados na Etapa A
+
+| Parâmetro | iFlow | Exemplo | Padrão no script |
+| --- | --- | --- | --- |
+| `SNOW_HOST` | 01, 04 | `bradesco.service-now.com` | — |
+| `SNOW_TABLE` | 01, 04 | `sc_req_item` | — |
+| `SNOW_CAT_ITEM_SYSID` | 01 | sys_id do item de catálogo | — (obrigatório) |
+| `SNOW_LIMIT` | 01 | `20` | 20 |
+| `TRP_ENABLED` | 01 | `true` / `false` | — |
+| `SNOW_TOKEN_URL` | 03 | `https://<host>/oauth_token.do` | — |
+| `SNOW_CLIENT_CREDENTIAL` | 03 | `TRP_SNOW_CLIENT` | — |
+| `SNOW_JWT_KEY_ALIAS` | 03 | `trp_snow_jwt` | — |
+| `SNOW_JWT_KID` | 03 | `trp-cpi-2026` | — |
+| `SNOW_JWT_SUB` | 03 | `svc_cpi_transport` | — |
+| `SNOW_ASSERTION_PARAM` | 03 | `assertion` | `assertion` |
+| `SNOW_JWT_AUD` / `SNOW_JWT_ISS` | 03 | `-` | client ID |
+| `SNOW_TOKEN_SCOPE` | 03 | `-` | sem escopo |
+| `EXPORT_MODE` | 02 | `MANUAL_TR` | `MANUAL_TR` |
+| `CTMS_URI` | 02 | `uri` da key do cTMS | — (obrigatório) |
+| `CTMS_QAS_NODE_ID` | 02 | `42` | — (obrigatório) |
+| `CTMS_NAMED_USER` | 02 | `cpi-orquestracao` | `cpi-orquestracao` |
+| `CPI_QAS_URL` | 02 | `https://<tenant>.it-cpi<nnn>.cfapps.<região>.hana.ondemand.com` | — |
+| `CRED_CTMS` / `CRED_CPI_QAS` | 02 | `TRP_CTMS` / `TRP_CPI_QAS` | — |
+| `TIMEOUT_WAITING_TR_MIN` | 02 | `60` | 60 |
+| `TIMEOUT_IMPORT_MIN` | 02 | `15` | 15 |
+| `TIMEOUT_DEPLOY_MIN` | 02 | `10` | 10 |
+| `MAX_RETRIES` | 02 | `5` | 5 |
+| `TEST_SYS_ID` | 99 | sys_id de um chamado de teste, ou `-` | — |
+
+### 19.2 Bloco B — ajustes do cTMS (opcionais)
+
+Só crie a propriedade no Content Modifier "Config" do `IF_TRP_02` se o Passo 2 mostrou algo diferente do padrão.
+
+| Parâmetro | Padrão no script |
+| --- | --- |
+| `CTMS_QUEUE_PATH` | `/v2/nodes/#NODE_ID#/transportRequests` |
+| `CTMS_IMPORT_PATH` | `/v2/nodes/#NODE_ID#/transportRequests/import` |
+| `CTMS_ACTION_PATH` | `/v2/actions/#ACTION_ID#` |
+| `CTMS_ACTIONID_JSONPATH` | `actionId` |
+| `CTMS_ACTION_STATUS_JSONPATH` | `status` |
+| `CTMS_ACTION_OK_VALUES` | `succeeded,su,warning,wa` |
+| `CTMS_ACTION_FAILED_VALUES` | `error,er,fatal,fa` |
+| `CTMS_IMPORTABLE_VALUES` | `initial,in,repeatable,re` |
+| `ACTIVE_STATES` (iFlow 01) | `PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING` |
+| `SNOW_JWT_TTL_SECONDS` (iFlow 03) | `300` |
+
+As comparações de valores não diferenciam maiúsculas de minúsculas. Os caminhos de campo usam ponto, por exemplo `action.id` ou `result.0.status`.
+
+### 19.3 Bloco C — Etapa B (Content Agent)
+
+Os exemplos são provisórios: troque pelos valores da documentação oficial (seção 18, ponto 1).
+
+| Parâmetro | Exemplo provisório | O que é |
+| --- | --- | --- |
+| `CAS_DEV_URL` | URL da `key-cas-dev-trp` | Base da API do Content Agent |
+| `CAS_EXPORT_PATH` | `/CONFIRMAR/export` | Caminho do POST que cria o export |
+| `CAS_EXPORT_BODY_TEMPLATE` | `{"contentType":"CloudIntegration","resources":[{"id":"#PACKAGE_ID#"}],"description":"#TICKET#"}` | Corpo do POST. Marcadores: `#PACKAGE_ID#`, `#ARTIFACT_ID#`, `#VERSION#`, `#TICKET#` |
+| `CAS_OPID_JSONPATH` | `id` | Onde vem o ID da operação na resposta |
+| `CAS_STATUS_PATH` | `/CONFIRMAR/export/#OPERATION_ID#` | Caminho do GET de status |
+| `CAS_STATUS_JSONPATH` | `status` | Campo de status |
+| `CAS_DONE_VALUES` | `COMPLETED,SUCCEEDED,SUCCESS` | Valores de sucesso |
+| `CAS_FAILED_VALUES` | `FAILED,ERROR` | Valores de falha |
+| `CAS_TRID_JSONPATH` | `transportRequest.id` | Onde vem o ID da transport request |
+| `TIMEOUT_EXPORT_MIN` | `15` | Prazo do estado `EXPORTING` |
+| `CRED_CAS_DEV` | `TRP_CAS_DEV` | Credencial das chamadas G e H |
+
+---
+
+## 20. Anexo — scripts Groovy completos
+
+Os mesmos arquivos de [`scripts/`](scripts/), reproduzidos aqui para copiar e colar.
 
 
 ### TRP_01_Orchestrator.groovy
@@ -472,16 +1208,16 @@ Os mesmos arquivos de [`scripts/`](scripts/), reproduzidos aqui para leitura.
  * iFlow: IF_TRP_01_Orchestrator
  *
  * Funções usadas nos passos de Script do iFlow:
- *   extractToken      -> depois da chamada ao IF_TRP_03 (token do ServiceNow)
- *   ticketsToLines    -> depois do GET na Table API (um chamado por linha, para o Iterating Splitter)
- *   lineToRequest     -> dentro do splitter, antes de chamar o IF_TRP_02
+ *   prepareSearch   -> depois da chamada ao IF_TRP_03: guarda o token e monta a busca na Table API
+ *   ticketsToLines  -> depois do GET na Table API (um chamado por linha, para o Iterating Splitter)
+ *   lineToRequest   -> dentro do splitter, antes de chamar o IF_TRP_02
  */
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.transform.Field
 
-/** Campos do sc_req_item que o IF_TRP_02 precisa. Mesma lista do sysparm_fields. */
+/** Campos do sc_req_item que o IF_TRP_02 precisa. */
 @Field static final List<String> FIELDS = [
     "sys_id", "number",
     "u_cpi_transport_status", "u_cpi_stage_since", "u_cpi_retries",
@@ -489,14 +1225,40 @@ import groovy.transform.Field
     "u_cpi_operation_id", "u_cpi_tr_id", "u_cpi_action_id"
 ]
 
-/** Lê {"access_token": "..."} devolvido pelo IF_TRP_03 e guarda numa propriedade. */
-def Message extractToken(Message message) {
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
+
+/**
+ * Lê {"access_token": "..."} devolvido pelo IF_TRP_03, guarda numa propriedade
+ * e monta os headers e a query (já codificada) do GET na Table API.
+ */
+def Message prepareSearch(Message message) {
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     if (!json.access_token) {
         throw new IllegalStateException("IF_TRP_03 não devolveu access_token")
     }
-    message.setProperty("SNOW_TOKEN", json.access_token as String)
+    String token = json.access_token as String
+    message.setProperty("SNOW_TOKEN", token)
+
+    if (!prop(message, "SNOW_CAT_ITEM_SYSID")) {
+        throw new IllegalStateException("Parâmetro SNOW_CAT_ITEM_SYSID vazio")
+    }
+    String states = prop(message, "ACTIVE_STATES") ?: "PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING"
+    String encodedQuery = "cat_item=" + prop(message, "SNOW_CAT_ITEM_SYSID") +
+                          "^u_cpi_transport_statusIN" + states.replace(" ", "") +
+                          "^ORDERBYsys_created_on"
+    String query = "sysparm_query=" + URLEncoder.encode(encodedQuery, "UTF-8") +
+                   "&sysparm_fields=" + URLEncoder.encode(FIELDS.join(","), "UTF-8") +
+                   "&sysparm_display_value=false" +
+                   "&sysparm_exclude_reference_link=true" +
+                   "&sysparm_limit=" + (prop(message, "SNOW_LIMIT") ?: "20")
+    message.setProperty("SNOW_QUERY", query)
+
+    message.setHeader("Authorization", "Bearer " + token)
+    message.setHeader("Accept", "application/json")
     message.setBody("")
     return message
 }
@@ -506,6 +1268,7 @@ def Message extractToken(Message message) {
  * O Iterating Splitter (Expression Type = Line Break) separa cada chamado.
  */
 def Message ticketsToLines(Message message) {
+    message.setHeader("Authorization", "")      // o token não segue adiante neste header
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     List result = (json.result ?: []) as List
@@ -524,7 +1287,7 @@ def Message ticketsToLines(Message message) {
 /**
  * Dentro do splitter: o corpo é um chamado (uma linha JSON).
  * Propriedades não atravessam o ProcessDirect, então o token vai num header
- * que o IF_TRP_02 lê e apaga logo no primeiro passo.
+ * que o IF_TRP_02 lê e esvazia logo no primeiro passo.
  */
 def Message lineToRequest(Message message) {
     String line = (message.getBody(String) ?: "").trim()
@@ -553,7 +1316,9 @@ def Message lineToRequest(Message message) {
  *   qualquer estado -> FAILED (erro definitivo, prazo vencido ou tentativas esgotadas)
  *
  * Funções (uma por passo de Script no iFlow):
- *   prepare               -> lê o chamado, calcula prazo, valida campos, monta URLs
+ *   prepare               -> lê o chamado, decide a rota (propriedade ROUTE) e já resolve
+ *                            os casos que não precisam de chamada HTTP (prazo vencido,
+ *                            campos inválidos, contingência PENDING -> WAITING_TR)
  *   buildExportRequest    -> corpo do POST de export no Content Agent
  *   handleExportResponse  -> PENDING -> EXPORTING
  *   evaluateExportStatus  -> export concluído? define NEXT = START_IMPORT
@@ -562,15 +1327,16 @@ def Message lineToRequest(Message message) {
  *   handleImportResponse  -> -> IMPORTING (grava ID da request e da ação)
  *   evaluateImport        -> import concluído? define NEXT = START_DEPLOY
  *   handleDeployResponse  -> -> DEPLOYING
- *   evaluateDeploy        -> STARTED na versão pedida -> SUCCESS; ERROR -> FAILED
- *   markWaitingTr         -> PENDING -> WAITING_TR (contingência)
- *   markTimeout           -> prazo do estado vencido -> FAILED
- *   markValidationError   -> campos inválidos -> FAILED
+ *   evaluateDeploy        -> STARTED, implantado depois do pedido e na versão pedida -> SUCCESS
  *   buildUpdateRequest    -> monta o pedido para o IF_TRP_04 (ServiceNow)
  *   handleError           -> Exception Subprocess: erro transitório ou definitivo
+ *                            (o erro também aparece no monitor, em Custom Headers > TRP_Error)
  *
- * Os endpoints do Content Agent e parte dos do cTMS vêm de parâmetros externalizados,
- * porque precisam ser confirmados na documentação oficial (ver IMPLEMENTACAO-CPI.md, seção 13).
+ * Valores de ROUTE: EXPORT, CHECK_EXPORT, CHECK_QUEUE, CHECK_IMPORT, CHECK_DEPLOY, DONE
+ * Valores de NEXT : START_IMPORT, START_DEPLOY ou vazio
+ *
+ * Os endpoints do Content Agent e do cTMS vêm de parâmetros externalizados,
+ * porque precisam ser confirmados no tenant (ver IMPLEMENTACAO-CPI.md).
  */
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
@@ -581,10 +1347,20 @@ import java.text.SimpleDateFormat
 
 @Field static final String SNOW_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss"
 @Field static final List<Integer> TRANSIENT_HTTP = [408, 425, 429, 500, 502, 503, 504]
+/** Tolerância entre o relógio do orquestrador e o do tenant de QAS. */
+@Field static final long CLOCK_SKEW_MS = 120000L
+/** Caminhos padrão da API v2 do cTMS (podem ser trocados por parâmetro). */
+@Field static final String DEFAULT_QUEUE_PATH = "/v2/nodes/#NODE_ID#/transportRequests"
+@Field static final String DEFAULT_IMPORT_PATH = "/v2/nodes/#NODE_ID#/transportRequests/import"
+@Field static final String DEFAULT_ACTION_PATH = "/v2/actions/#ACTION_ID#"
 
 // ---------------------------------------------------------------- utilitários
 
-String prop(Message m, String k) { (m.getProperty(k) ?: "") as String }
+/** Lê uma propriedade. O valor "-" conta como vazio (para parâmetros opcionais). */
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
 
 String nowUtc() {
     def f = new SimpleDateFormat(SNOW_DATE_FORMAT)
@@ -627,8 +1403,19 @@ String fill(String template, Message m) {
         .replace("#TR_ID#", prop(m, "TR_ID"))
 }
 
-List<String> csvUpper(String s) {
-    (s ?: "").split(",").collect { it.trim().toUpperCase() }.findAll { it }
+/** Lista de valores separados por vírgula, em maiúsculas; usa o padrão se o parâmetro estiver vazio. */
+List<String> csvUpper(String s, String fallback) {
+    ((s ?: "") ?: fallback).split(",").collect { it.trim().toUpperCase() }.findAll { it }
+}
+
+/** Grava um Custom Header no log da mensagem (ignora se não estiver rodando no CPI). */
+void logHeader(Message m, String name, String value) {
+    try {
+        def log = messageLogFactory.getMessageLog(m)
+        if (log != null) log.addCustomHeaderProperty(name, (value ?: "").take(200))
+    } catch (MissingPropertyException ignored) {
+        // fora do CPI (testes locais) não existe messageLogFactory
+    }
 }
 
 void setJsonHeaders(Message m) {
@@ -653,6 +1440,24 @@ void moveTo(Message m, String state, Map extra, String note) {
 void fail(Message m, String reason) {
     String r = reason ?: "Falha sem detalhe"
     moveTo(m, "FAILED", [u_cpi_message: r.take(250)], "FALHA: " + r)
+    m.setProperty("NEXT", "")
+}
+
+/** DeployedOn do OData: "/Date(1767225600000)/" (JSON) ou "2026-02-25T09:46:43.180" (UTC). */
+Long parseDeployedOn(Object value) {
+    String s = (value ?: "") as String
+    def m = (s =~ /\/Date\((\d+)([+-]\d+)?\)\//)
+    if (m.find()) return m.group(1) as Long
+    if (s ==~ /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*/) {
+        try {
+            def f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss")
+            f.setTimeZone(TimeZone.getTimeZone("UTC"))
+            return f.parse(s.take(19)).getTime()
+        } catch (Exception ignored) {
+            return null
+        }
+    }
+    return null
 }
 
 // ---------------------------------------------------------------- prepare
@@ -672,51 +1477,82 @@ def Message prepare(Message message) {
         TR_ID       : "u_cpi_tr_id",
         ACTION_ID   : "u_cpi_action_id"
     ]
-    map.each { k, f -> message.setProperty(k, (t[f] ?: "") as String) }
+    map.each { k, f -> message.setProperty(k, ((t[f] ?: "") as String).trim()) }
     if (!prop(message, "RETRIES")) message.setProperty("RETRIES", "0")
+    message.setProperty("UPDATE", "false")
+    message.setProperty("NEXT", "")
 
     // Token: chega em header e vira propriedade; o header é esvaziado
     String token = message.getHeaders().get("X-Trp-Snow-Token") as String
-    if (!token) throw new IllegalStateException("Token do ServiceNow ausente")
+    if (!token) throw new IllegalStateException("Token do ServiceNow ausente (header X-Trp-Snow-Token)")
     message.setProperty("SNOW_TOKEN", token)
     message.setHeader("X-Trp-Snow-Token", "")
     message.setHeader("SAP_ApplicationID", prop(message, "NUMBER"))
     message.setHeader("Accept", "application/json")
+    message.setBody("")
 
-    // Prazo do estado atual
     String state = prop(message, "STATE")
+    boolean active = state in ["PENDING", "EXPORTING", "WAITING_TR", "IMPORTING", "DEPLOYING"]
+
+    // Configuração mínima (só cobra quando há algo a fazer)
+    if (active) {
+        ["CTMS_URI", "CTMS_QAS_NODE_ID"].each { k ->
+            if (!prop(message, k)) throw new IllegalStateException("Parâmetro " + k + " vazio no IF_TRP_02")
+        }
+    }
+
+    // URLs resolvidas (endpoints configuráveis, com padrão quando o parâmetro não existe)
+    String base = prop(message, "CTMS_URI")
+    message.setProperty("CAS_EXPORT_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_EXPORT_PATH"), message))
+    message.setProperty("CAS_STATUS_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_STATUS_PATH"), message))
+    message.setProperty("CTMS_QUEUE_URL", base + fill(prop(message, "CTMS_QUEUE_PATH") ?: DEFAULT_QUEUE_PATH, message))
+    message.setProperty("CTMS_ACTION_URL", base + fill(prop(message, "CTMS_ACTION_PATH") ?: DEFAULT_ACTION_PATH, message))
+
+    // 1. Prazo do estado atual
     Map<String, String> limits = [
-        EXPORTING : prop(message, "TIMEOUT_EXPORT_MIN"),
-        WAITING_TR: prop(message, "TIMEOUT_WAITING_TR_MIN"),
-        IMPORTING : prop(message, "TIMEOUT_IMPORT_MIN"),
-        DEPLOYING : prop(message, "TIMEOUT_DEPLOY_MIN")
+        EXPORTING : prop(message, "TIMEOUT_EXPORT_MIN") ?: "15",
+        WAITING_TR: prop(message, "TIMEOUT_WAITING_TR_MIN") ?: "60",
+        IMPORTING : prop(message, "TIMEOUT_IMPORT_MIN") ?: "15",
+        DEPLOYING : prop(message, "TIMEOUT_DEPLOY_MIN") ?: "10"
     ]
-    boolean timedOut = false
     if (limits[state] && prop(message, "STAGE_SINCE")) {
         long elapsedMin = ((System.currentTimeMillis() - parseUtc(prop(message, "STAGE_SINCE")).getTime()) / 60000L) as long
         message.setProperty("STAGE_ELAPSED_MIN", elapsedMin as String)
-        timedOut = elapsedMin > (limits[state] as long)
+        if (elapsedMin > (limits[state] as long)) {
+            fail(message, "Prazo do estado " + state + " vencido (" + elapsedMin + " min; limite " + limits[state] + " min).")
+            message.setProperty("ROUTE", "DONE")
+            return message
+        }
     }
-    message.setProperty("TIMED_OUT", timedOut as String)
 
-    // Validação dos campos do chamado (só no primeiro passo)
-    List<String> errors = []
+    // 2. Primeiro passo: valida os campos e escolhe o modo de export
     if (state == "PENDING") {
+        List<String> errors = []
         if (!(prop(message, "ARTIFACT_ID") ==~ /[A-Za-z0-9_.\-]+/)) errors << "ID técnico do iFlow inválido"
         if (!(prop(message, "VERSION") ==~ /(\d+\.\d+\.\d+|active)/)) errors << "Versão inválida (ex.: 1.0.3)"
         if (!(prop(message, "PACKAGE_ID") ==~ /[A-Za-z0-9_.\-]+/)) errors << "ID técnico do pacote inválido"
+        if (errors) {
+            fail(message, "Campos inválidos no chamado: " + errors.join("; "))
+            message.setProperty("ROUTE", "DONE")
+        } else if (prop(message, "EXPORT_MODE").toUpperCase() == "API") {
+            message.setProperty("ROUTE", "EXPORT")
+        } else {
+            moveTo(message, "WAITING_TR", [:],
+                   "Aguardando a transport request. Clique em Transport no pacote do CPI DEV e escreva " +
+                   prop(message, "NUMBER") + " na descrição.")
+            message.setProperty("ROUTE", "DONE")
+        }
+        return message
     }
-    message.setProperty("VALIDATION_ERROR", errors.join("; "))
 
-    // URLs resolvidas (endpoints configuráveis)
-    message.setProperty("CAS_EXPORT_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_EXPORT_PATH"), message))
-    message.setProperty("CAS_STATUS_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_STATUS_PATH"), message))
-    message.setProperty("CTMS_QUEUE_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_QUEUE_PATH"), message))
-    message.setProperty("CTMS_ACTION_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_ACTION_PATH"), message))
-
-    message.setProperty("UPDATE", "false")
-    message.setProperty("NEXT", "")
-    message.setBody("")
+    // 3. Demais estados
+    Map<String, String> routes = [
+        EXPORTING : "CHECK_EXPORT",
+        WAITING_TR: "CHECK_QUEUE",
+        IMPORTING : "CHECK_IMPORT",
+        DEPLOYING : "CHECK_DEPLOY"
+    ]
+    message.setProperty("ROUTE", routes[state] ?: "DONE")
     return message
 }
 
@@ -729,7 +1565,7 @@ def Message buildExportRequest(Message message) {
 }
 
 def Message handleExportResponse(Message message) {
-    def opId = jsonPath(bodyJson(message), prop(message, "CAS_OPID_JSONPATH"))
+    def opId = jsonPath(bodyJson(message), prop(message, "CAS_OPID_JSONPATH") ?: "id")
     message.setBody("")
     if (!opId) {
         fail(message, "Content Agent não devolveu o ID da operação de export")
@@ -742,9 +1578,9 @@ def Message handleExportResponse(Message message) {
 
 def Message evaluateExportStatus(Message message) {
     def body = bodyJson(message)
-    String status = ((jsonPath(body, prop(message, "CAS_STATUS_JSONPATH")) ?: "") as String).toUpperCase()
+    String status = ((jsonPath(body, prop(message, "CAS_STATUS_JSONPATH") ?: "status") ?: "") as String).toUpperCase()
     message.setBody("")
-    if (status in csvUpper(prop(message, "CAS_DONE_VALUES"))) {
+    if (status in csvUpper(prop(message, "CAS_DONE_VALUES"), "COMPLETED,SUCCEEDED,SUCCESS")) {
         def trId = jsonPath(body, prop(message, "CAS_TRID_JSONPATH"))
         if (!trId) {
             fail(message, "Export concluído sem ID de transport request na resposta")
@@ -752,7 +1588,7 @@ def Message evaluateExportStatus(Message message) {
         }
         message.setProperty("TR_ID", trId as String)
         message.setProperty("NEXT", "START_IMPORT")
-    } else if (status in csvUpper(prop(message, "CAS_FAILED_VALUES"))) {
+    } else if (status in csvUpper(prop(message, "CAS_FAILED_VALUES"), "FAILED,ERROR")) {
         fail(message, "Export falhou no Content Agent (status " + status + ")")
     }
     // qualquer outro status: ainda em andamento, nada a fazer neste ciclo
@@ -761,25 +1597,25 @@ def Message evaluateExportStatus(Message message) {
 
 // ---------------------------------------------------------------- contingência (sem API de export)
 
-def Message markWaitingTr(Message message) {
-    moveTo(message, "WAITING_TR", [:],
-           "Aguardando a transport request. Clique em Transport no pacote do CPI DEV e escreva " +
-           prop(message, "NUMBER") + " na descrição.")
-    return message
-}
-
 def Message findTrByTicket(Message message) {
     def body = bodyJson(message)
     List list = (body instanceof List) ? body : ((body.transportRequests ?: []) as List)
     String ticket = prop(message, "NUMBER")
-    List matches = list.findAll { (it.description ?: "").toString().contains(ticket) }
+    List<String> importable = csvUpper(prop(message, "CTMS_IMPORTABLE_VALUES"), "INITIAL,IN,REPEATABLE,RE")
+
+    List matches = list.findAll { tr ->
+        boolean sameTicket = (tr.description ?: "").toString().contains(ticket)
+        String status = ((tr.status ?: "") as String).toUpperCase()
+        sameTicket && (!status || status in importable)
+    }
     message.setBody("")
     if (matches.size() > 1) {
-        fail(message, "Há mais de uma request na fila com " + ticket + " na descrição")
+        fail(message, "Há mais de uma request importável na fila com " + ticket + " na descrição")
     } else if (matches.size() == 1) {
         message.setProperty("TR_ID", matches[0].id as String)
         message.setProperty("NEXT", "START_IMPORT")
     }
+    // nenhuma: o dev ainda não clicou em Transport; espera o próximo ciclo
     return message
 }
 
@@ -789,16 +1625,16 @@ def Message buildImportRequest(Message message) {
     String tr = prop(message, "TR_ID")
     def trValue = tr.isLong() ? (tr as long) : tr
     setJsonHeaders(message)
-    message.setProperty("CTMS_IMPORT_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_IMPORT_PATH"), message))
+    message.setProperty("CTMS_IMPORT_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_IMPORT_PATH") ?: DEFAULT_IMPORT_PATH, message))
     message.setBody(JsonOutput.toJson([
-        namedUser        : prop(message, "CTMS_NAMED_USER"),
+        namedUser        : prop(message, "CTMS_NAMED_USER") ?: "cpi-orquestracao",
         transportRequests: [trValue]
     ]))
     return message
 }
 
 def Message handleImportResponse(Message message) {
-    def actionId = jsonPath(bodyJson(message), prop(message, "CTMS_ACTIONID_JSONPATH"))
+    def actionId = jsonPath(bodyJson(message), prop(message, "CTMS_ACTIONID_JSONPATH") ?: "actionId")
     message.setBody("")
     if (!actionId) {
         fail(message, "cTMS não devolveu o ID da ação de import")
@@ -807,16 +1643,18 @@ def Message handleImportResponse(Message message) {
     moveTo(message, "IMPORTING",
            [u_cpi_tr_id: prop(message, "TR_ID"), u_cpi_action_id: actionId as String],
            "Import da request " + prop(message, "TR_ID") + " iniciado no nó de QAS (ação " + actionId + ").")
+    message.setProperty("NEXT", "")
     return message
 }
 
 def Message evaluateImport(Message message) {
-    String status = ((jsonPath(bodyJson(message), prop(message, "CTMS_ACTION_STATUS_JSONPATH")) ?: "") as String).toUpperCase()
+    String status = ((jsonPath(bodyJson(message), prop(message, "CTMS_ACTION_STATUS_JSONPATH") ?: "status") ?: "") as String).toUpperCase()
     message.setBody("")
-    if (status in ["SUCCEEDED", "WARNING"]) {
+    if (status in csvUpper(prop(message, "CTMS_ACTION_OK_VALUES"), "SUCCEEDED,SU,WARNING,WA")) {
         message.setProperty("NEXT", "START_DEPLOY")
-    } else if (status in ["ERROR", "FATAL"]) {
-        fail(message, "Import da request " + prop(message, "TR_ID") + " terminou em " + status + " no cTMS")
+    } else if (status in csvUpper(prop(message, "CTMS_ACTION_FAILED_VALUES"), "ERROR,ER,FATAL,FA")) {
+        fail(message, "Import da request " + prop(message, "TR_ID") + " terminou em " + status +
+                      " no cTMS. Veja o log da ação " + prop(message, "ACTION_ID") + ".")
     }
     return message
 }
@@ -826,6 +1664,7 @@ def Message evaluateImport(Message message) {
 def Message handleDeployResponse(Message message) {
     message.setBody("")
     moveTo(message, "DEPLOYING", [:], "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
+    message.setProperty("NEXT", "")
     return message
 }
 
@@ -843,29 +1682,27 @@ def Message evaluateDeploy(Message message) {
     String status = ((d?.Status ?: "") as String).toUpperCase()
     String runtimeVersion = (d?.Version ?: "") as String
     String wanted = prop(message, "VERSION")
+    String artifact = prop(message, "ARTIFACT_ID")
     message.setBody("")
 
-    if (status == "STARTED" && (wanted == "active" || runtimeVersion == wanted)) {
-        moveTo(message, "SUCCESS", [u_cpi_message: "STARTED " + runtimeVersion],
-               "iFlow " + prop(message, "ARTIFACT_ID") + " versão " + runtimeVersion + " em QAS com status STARTED " +
-               "(transport request " + prop(message, "TR_ID") + ").")
-    } else if (status == "ERROR") {
-        fail(message, "iFlow " + prop(message, "ARTIFACT_ID") + " ficou em ERROR em QAS. Veja o Monitor do CPI QAS.")
+    // O que está no runtime é o deploy deste chamado, ou um deploy antigo?
+    Long deployedOn = parseDeployedOn(d?.DeployedOn)
+    Long since = prop(message, "STAGE_SINCE") ? parseUtc(prop(message, "STAGE_SINCE")).getTime() : null
+    boolean fresh = (deployedOn == null || since == null) ? true : (deployedOn >= since - CLOCK_SKEW_MS)
+
+    if (status in ["ERROR", "FAILED"]) {
+        fail(message, "iFlow " + artifact + " ficou em " + status + " em QAS. Veja Monitor > Manage Integration Content no CPI QAS.")
+    } else if (status == "STARTED" && fresh) {
+        if (wanted == "active" || runtimeVersion == wanted) {
+            moveTo(message, "SUCCESS", [u_cpi_message: "STARTED " + runtimeVersion],
+                   "iFlow " + artifact + " versão " + runtimeVersion + " em QAS com status STARTED " +
+                   "(transport request " + prop(message, "TR_ID") + ").")
+        } else {
+            fail(message, "iFlow " + artifact + " subiu em QAS na versão " + runtimeVersion + ", mas o chamado pediu " + wanted +
+                          ". O transporte leva a versão que estava salva em DEV no momento do export.")
+        }
     }
-    // STARTING, ou STARTED com versão antiga: espera o próximo ciclo
-    return message
-}
-
-// ---------------------------------------------------------------- estados finais
-
-def Message markTimeout(Message message) {
-    fail(message, "Prazo do estado " + prop(message, "STATE") + " vencido (" +
-                  prop(message, "STAGE_ELAPSED_MIN") + " min).")
-    return message
-}
-
-def Message markValidationError(Message message) {
-    fail(message, "Campos inválidos no chamado: " + prop(message, "VALIDATION_ERROR"))
+    // STARTING, ou STARTED de um deploy antigo: espera o próximo ciclo
     return message
 }
 
@@ -895,6 +1732,13 @@ def Message handleError(Message message) {
         detail = "HTTP " + code + ": " + resp.take(300)
     }
 
+    logHeader(message, "TRP_Error", (prop(message, "NUMBER") ?: "?") + " / " + (prop(message, "STATE") ?: "?") + ": " + detail)
+
+    if (!prop(message, "SYS_ID") || !prop(message, "SNOW_TOKEN")) {
+        // Falhou antes de ler o chamado: não há o que atualizar no ServiceNow
+        throw new IllegalStateException("Erro antes de identificar o chamado: " + detail)
+    }
+
     boolean isTransient = (code in TRANSIENT_HTTP) ||
                           detail.startsWith("TRANSIENT") ||
                           ex instanceof java.net.SocketTimeoutException ||
@@ -906,7 +1750,7 @@ def Message handleError(Message message) {
 
     if (isTransient && retries + 1 < maxRetries) {
         setUpdate(message, [u_cpi_retries: (retries + 1) as String],
-                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + "): " + detail)
+                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
     } else {
         fail(message, "Erro no estado " + prop(message, "STATE") + ": " + detail)
     }
@@ -945,7 +1789,11 @@ import java.nio.charset.StandardCharsets
 import java.security.PrivateKey
 import java.security.Signature
 
-String prop(Message m, String k) { (m.getProperty(k) ?: "") as String }
+/** Lê uma propriedade. O valor "-" conta como vazio (para parâmetros opcionais). */
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
 
 String b64url(byte[] bytes) {
     Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
@@ -955,7 +1803,7 @@ String enc(String s) { URLEncoder.encode(s ?: "", "UTF-8") }
 
 def Message buildTokenRequest(Message message) {
     // 1. client_id e client_secret do Security Material
-    def secureStore = ITApiFactory.getApi(SecureStoreService.class, null)
+    def secureStore = ITApiFactory.getService(SecureStoreService.class, null)
     def cred = secureStore.getUserCredential(prop(message, "SNOW_CLIENT_CREDENTIAL"))
     if (cred == null) {
         throw new IllegalStateException("Credencial " + prop(message, "SNOW_CLIENT_CREDENTIAL") + " não encontrada no Security Material")
@@ -964,7 +1812,7 @@ def Message buildTokenRequest(Message message) {
     String clientSecret = new String(cred.getPassword())
 
     // 2. Chave privada do Keystore
-    def keystore = ITApiFactory.getApi(KeystoreService.class, null)
+    def keystore = ITApiFactory.getService(KeystoreService.class, null)
     def key = keystore.getKey(prop(message, "SNOW_JWT_KEY_ALIAS"))
     if (!(key instanceof PrivateKey)) {
         throw new IllegalStateException("Alias " + prop(message, "SNOW_JWT_KEY_ALIAS") + " não é uma chave privada no Keystore")
@@ -1017,7 +1865,8 @@ def Message parseTokenResponse(Message message) {
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     if (!json.access_token) {
-        throw new IllegalStateException("Resposta de token sem access_token")
+        String err = ((json.error ?: "") + " " + (json.error_description ?: "")).trim()
+        throw new IllegalStateException("Resposta de token sem access_token" + (err ? ": " + err : ""))
     }
     message.setBody(JsonOutput.toJson([access_token: json.access_token, expires_in: json.expires_in]))
     message.setHeader("Content-Type", "application/json")
@@ -1036,8 +1885,9 @@ def Message parseTokenResponse(Message message) {
  *   header X-Trp-Snow-Token : access token do ServiceNow
  *   corpo                   : {"sys_id": "...", "fields": {"u_cpi_transport_status": "...", "work_notes": "..."}}
  *
- * Função:
+ * Funções:
  *   prepareUpdate -> prepara o PATCH na Table API
+ *   finishUpdate  -> depois do PATCH: limpa o corpo e o header Authorization
  */
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
@@ -1060,6 +1910,80 @@ def Message prepareUpdate(Message message) {
     message.setHeader("Content-Type", "application/json")
     message.setHeader("Accept", "application/json")
     message.setBody(JsonOutput.toJson(req.fields ?: [:]))
+    return message
+}
+
+def Message finishUpdate(Message message) {
+    message.setHeader("Authorization", "")
+    message.setBody("")
+    return message
+}
+```
+
+### TRP_99_ConnectionTest.groovy
+
+```groovy
+/*
+ * TRP_99_ConnectionTest.groovy
+ * iFlow: IF_TRP_99_ConnectionTest (temporário, só para testes)
+ *
+ * Testa o IF_TRP_03 (token do ServiceNow) e, se TEST_SYS_ID estiver preenchido,
+ * o IF_TRP_04 (grava uma work note num chamado de teste).
+ *
+ * Funções:
+ *   afterToken  -> depois da chamada ao /trp/snow-token
+ *   afterUpdate -> depois da chamada ao /trp/snow-update
+ *
+ * O resultado aparece no monitor de mensagens, em Custom Headers (TRP_TokenTest e
+ * TRP_UpdateTest), sem precisar ligar o trace. O token nunca é gravado.
+ */
+import com.sap.gateway.ip.core.customdev.util.Message
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
+
+/** Grava um Custom Header no log da mensagem (ignora se não estiver rodando no CPI). */
+void logHeader(Message m, String name, String value) {
+    try {
+        def log = messageLogFactory.getMessageLog(m)
+        if (log != null) log.addCustomHeaderProperty(name, value)
+    } catch (MissingPropertyException ignored) {
+        // fora do CPI (testes locais) não existe messageLogFactory
+    }
+}
+
+def Message afterToken(Message message) {
+    String body = message.getBody(String)
+    def json = body ? new JsonSlurper().parseText(body) : [:]
+    if (!json.access_token) {
+        throw new IllegalStateException("IF_TRP_03 não devolveu access_token")
+    }
+    String token = json.access_token as String
+    logHeader(message, "TRP_TokenTest", "OK - token com " + token.length() + " caracteres, expira em " + json.expires_in + " s")
+
+    String sysId = prop(message, "TEST_SYS_ID")
+    message.setProperty("DO_UPDATE", sysId ? "true" : "false")
+    if (sysId) {
+        message.setHeader("X-Trp-Snow-Token", token)
+        message.setHeader("Content-Type", "application/json")
+        message.setBody(JsonOutput.toJson([
+            sys_id: sysId,
+            fields: [work_notes: "[Transporte CPI] Teste de conexão do CPI. Pode ignorar."]
+        ]))
+    } else {
+        message.setBody("")
+    }
+    return message
+}
+
+def Message afterUpdate(Message message) {
+    message.setHeader("X-Trp-Snow-Token", "")
+    logHeader(message, "TRP_UpdateTest", "OK - work note gravada no chamado de teste")
+    message.setBody("")
     return message
 }
 ```

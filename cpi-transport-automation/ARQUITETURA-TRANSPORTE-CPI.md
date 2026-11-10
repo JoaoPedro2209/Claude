@@ -1,6 +1,8 @@
 # Arquitetura — Transporte automatizado de iFlows do SAP Integration Suite
 
-**Documento de arquitetura · versão 1.1 · 29 de outubro de 2026 · Autor: João Pedro (SAP Basis / BTP)**
+**Documento de arquitetura · versão 1.2 · 10 de novembro de 2026 · Autor: João Pedro (SAP Basis / BTP)**
+
+> **Revisão 1.2:** alinhado ao guia de implementação 2.0. A entrega passa a ter duas etapas: **Etapa A** com a rota de transporte atual (o dev clica em Transport e a automação assume do import em diante, estado `WAITING_TR`) e **Etapa B** com o export por API. A checagem do deploy confere também a data do deploy e a versão. No ServiceNow, o próprio flow espera o resultado e fecha o chamado.
 
 > **Revisão 1.1:** as telas do Hub de Arquitetura são um cardápio de estilos de conexão com o ServiceNow, não requisitos obrigatórios; esta solução **escolhe** o estilo OAuth 2.0 com JWT assinado por certificado. A escolha do CPI como orquestrador passa a se apoiar em governança, papel de cada produto e residência de dados. A implementação completa está em [`cpi-iflows/IMPLEMENTACAO-CPI.md`](cpi-iflows/IMPLEMENTACAO-CPI.md).
 
@@ -257,7 +259,7 @@ stateDiagram-v2
 | `PENDING` | Valida campos; cria o export no Content Agent DEV (descrição = nº do chamado) | `EXPORTING` | — |
 | `EXPORTING` | Consulta a operação de export | Concluída → inicia o import da request em `QAS_CAS` → `IMPORTING` | 15 min |
 | `IMPORTING` | Consulta o action log do cTMS | `Succeeded`/`Warning` → chama o deploy → `DEPLOYING`; `Error`/`Fatal` → `FAILED` | 15 min |
-| `DEPLOYING` | Consulta `IntegrationRuntimeArtifacts` | `STARTED` → `SUCCESS`; `ERROR` → `FAILED` | 10 min |
+| `DEPLOYING` | Consulta `IntegrationRuntimeArtifacts` | `STARTED`, com deploy posterior ao pedido e na versão do chamado → `SUCCESS`; `ERROR` ou versão diferente → `FAILED` | 10 min |
 | `SUCCESS` / `FAILED` | Nenhuma (estado final) | — | — |
 
 **Contingência se a API de export não for confirmada:** o estado `PENDING` é substituído por `WAITING_TR`. O desenvolvedor clica em Transport e escreve o nº do chamado na descrição da request; a iFlow procura na fila de `QAS_CAS` a request cuja descrição contém o nº do chamado (prazo de 60 min) e segue para `IMPORTING`. O resto não muda.
@@ -327,6 +329,7 @@ Pacote `Z_TRANSPORTE_CPI` no tenant de orquestração:
 | `IF_TRP_02_AdvanceTicket` | ProcessDirect `/trp/advance` | Roteia pelo estado e executa um passo da máquina de estados |
 | `IF_TRP_03_SnowToken` | ProcessDirect `/trp/snow-token` | Monta e assina o JWT e troca pelo access token |
 | `IF_TRP_04_SnowUpdate` | ProcessDirect `/trp/snow-update` | PATCH no chamado (estado, IDs, notas, contador de tentativas) |
+| `IF_TRP_99_ConnectionTest` | Timer, uma vez a cada deploy | Temporário: testa o token e a gravação no ServiceNow |
 
 ### 10.2 Security Material
 
@@ -360,7 +363,7 @@ Pacote `Z_TRANSPORTE_CPI` no tenant de orquestração:
 
 ### 10.5 `IF_TRP_02_AdvanceTicket`
 
-Router pelo campo `u_cpi_transport_status`:
+O script lê `u_cpi_transport_status` e escolhe a rota. Visão por estado (a montagem detalhada está no guia de implementação):
 
 | Rota | Chamadas | Atualização no chamado |
 | --- | --- | --- |
@@ -462,8 +465,8 @@ Em seguida, a iFlow lê `TRP_SNOW_CLIENT` (SecureStoreService), monta o corpo `a
 
 ### 11.4 Flow e regras
 
-- **Flow (Service Catalog trigger):** grava `PENDING` e `u_cpi_stage_since`. Nenhuma chamada REST de saída.
-- **Business rule** em `sc_req_item` quando `u_cpi_transport_status` muda:
+- **Flow (Service Catalog trigger):** copia as variáveis para as colunas `u_cpi_*`, grava `PENDING`, espera o status virar `SUCCESS` ou `FAILED` (*Wait For Condition*) e então fecha o chamado ou o encaminha ao suporte. Nenhuma chamada REST de saída.
+- **Alternativa:** business rule em `sc_req_item` quando `u_cpi_transport_status` muda:
   - `SUCCESS` → State = Closed Complete;
   - `FAILED` → atribui ao grupo de suporte de integração e notifica o solicitante.
 

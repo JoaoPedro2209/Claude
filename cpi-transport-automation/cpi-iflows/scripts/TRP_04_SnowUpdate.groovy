@@ -6,8 +6,9 @@
  *   header X-Trp-Snow-Token : access token do ServiceNow
  *   corpo                   : {"sys_id": "...", "fields": {"u_cpi_transport_status": "...", "work_notes": "..."}}
  *
- * Função:
+ * Funções:
  *   prepareUpdate -> prepara o PATCH na Table API
+ *   finishUpdate  -> depois do PATCH: limpa o corpo e o header Authorization
  */
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
@@ -30,5 +31,11 @@ def Message prepareUpdate(Message message) {
     message.setHeader("Content-Type", "application/json")
     message.setHeader("Accept", "application/json")
     message.setBody(JsonOutput.toJson(req.fields ?: [:]))
+    return message
+}
+
+def Message finishUpdate(Message message) {
+    message.setHeader("Authorization", "")
+    message.setBody("")
     return message
 }

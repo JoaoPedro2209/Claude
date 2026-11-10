@@ -8,7 +8,9 @@
  *   qualquer estado -> FAILED (erro definitivo, prazo vencido ou tentativas esgotadas)
  *
  * Funções (uma por passo de Script no iFlow):
- *   prepare               -> lê o chamado, calcula prazo, valida campos, monta URLs
+ *   prepare               -> lê o chamado, decide a rota (propriedade ROUTE) e já resolve
+ *                            os casos que não precisam de chamada HTTP (prazo vencido,
+ *                            campos inválidos, contingência PENDING -> WAITING_TR)
  *   buildExportRequest    -> corpo do POST de export no Content Agent
  *   handleExportResponse  -> PENDING -> EXPORTING
  *   evaluateExportStatus  -> export concluído? define NEXT = START_IMPORT
@@ -17,15 +19,16 @@
  *   handleImportResponse  -> -> IMPORTING (grava ID da request e da ação)
  *   evaluateImport        -> import concluído? define NEXT = START_DEPLOY
  *   handleDeployResponse  -> -> DEPLOYING
- *   evaluateDeploy        -> STARTED na versão pedida -> SUCCESS; ERROR -> FAILED
- *   markWaitingTr         -> PENDING -> WAITING_TR (contingência)
- *   markTimeout           -> prazo do estado vencido -> FAILED
- *   markValidationError   -> campos inválidos -> FAILED
+ *   evaluateDeploy        -> STARTED, implantado depois do pedido e na versão pedida -> SUCCESS
  *   buildUpdateRequest    -> monta o pedido para o IF_TRP_04 (ServiceNow)
  *   handleError           -> Exception Subprocess: erro transitório ou definitivo
+ *                            (o erro também aparece no monitor, em Custom Headers > TRP_Error)
  *
- * Os endpoints do Content Agent e parte dos do cTMS vêm de parâmetros externalizados,
- * porque precisam ser confirmados na documentação oficial (ver IMPLEMENTACAO-CPI.md, seção 13).
+ * Valores de ROUTE: EXPORT, CHECK_EXPORT, CHECK_QUEUE, CHECK_IMPORT, CHECK_DEPLOY, DONE
+ * Valores de NEXT : START_IMPORT, START_DEPLOY ou vazio
+ *
+ * Os endpoints do Content Agent e do cTMS vêm de parâmetros externalizados,
+ * porque precisam ser confirmados no tenant (ver IMPLEMENTACAO-CPI.md).
  */
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
@@ -36,10 +39,20 @@ import java.text.SimpleDateFormat
 
 @Field static final String SNOW_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss"
 @Field static final List<Integer> TRANSIENT_HTTP = [408, 425, 429, 500, 502, 503, 504]
+/** Tolerância entre o relógio do orquestrador e o do tenant de QAS. */
+@Field static final long CLOCK_SKEW_MS = 120000L
+/** Caminhos padrão da API v2 do cTMS (podem ser trocados por parâmetro). */
+@Field static final String DEFAULT_QUEUE_PATH = "/v2/nodes/#NODE_ID#/transportRequests"
+@Field static final String DEFAULT_IMPORT_PATH = "/v2/nodes/#NODE_ID#/transportRequests/import"
+@Field static final String DEFAULT_ACTION_PATH = "/v2/actions/#ACTION_ID#"
 
 // ---------------------------------------------------------------- utilitários
 
-String prop(Message m, String k) { (m.getProperty(k) ?: "") as String }
+/** Lê uma propriedade. O valor "-" conta como vazio (para parâmetros opcionais). */
+String prop(Message m, String k) {
+    String v = ((m.getProperty(k) ?: "") as String).trim()
+    return v == "-" ? "" : v
+}
 
 String nowUtc() {
     def f = new SimpleDateFormat(SNOW_DATE_FORMAT)
@@ -82,8 +95,19 @@ String fill(String template, Message m) {
         .replace("#TR_ID#", prop(m, "TR_ID"))
 }
 
-List<String> csvUpper(String s) {
-    (s ?: "").split(",").collect { it.trim().toUpperCase() }.findAll { it }
+/** Lista de valores separados por vírgula, em maiúsculas; usa o padrão se o parâmetro estiver vazio. */
+List<String> csvUpper(String s, String fallback) {
+    ((s ?: "") ?: fallback).split(",").collect { it.trim().toUpperCase() }.findAll { it }
+}
+
+/** Grava um Custom Header no log da mensagem (ignora se não estiver rodando no CPI). */
+void logHeader(Message m, String name, String value) {
+    try {
+        def log = messageLogFactory.getMessageLog(m)
+        if (log != null) log.addCustomHeaderProperty(name, (value ?: "").take(200))
+    } catch (MissingPropertyException ignored) {
+        // fora do CPI (testes locais) não existe messageLogFactory
+    }
 }
 
 void setJsonHeaders(Message m) {
@@ -108,6 +132,24 @@ void moveTo(Message m, String state, Map extra, String note) {
 void fail(Message m, String reason) {
     String r = reason ?: "Falha sem detalhe"
     moveTo(m, "FAILED", [u_cpi_message: r.take(250)], "FALHA: " + r)
+    m.setProperty("NEXT", "")
+}
+
+/** DeployedOn do OData: "/Date(1767225600000)/" (JSON) ou "2026-02-25T09:46:43.180" (UTC). */
+Long parseDeployedOn(Object value) {
+    String s = (value ?: "") as String
+    def m = (s =~ /\/Date\((\d+)([+-]\d+)?\)\//)
+    if (m.find()) return m.group(1) as Long
+    if (s ==~ /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*/) {
+        try {
+            def f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss")
+            f.setTimeZone(TimeZone.getTimeZone("UTC"))
+            return f.parse(s.take(19)).getTime()
+        } catch (Exception ignored) {
+            return null
+        }
+    }
+    return null
 }
 
 // ---------------------------------------------------------------- prepare
@@ -127,51 +169,82 @@ def Message prepare(Message message) {
         TR_ID       : "u_cpi_tr_id",
         ACTION_ID   : "u_cpi_action_id"
     ]
-    map.each { k, f -> message.setProperty(k, (t[f] ?: "") as String) }
+    map.each { k, f -> message.setProperty(k, ((t[f] ?: "") as String).trim()) }
     if (!prop(message, "RETRIES")) message.setProperty("RETRIES", "0")
+    message.setProperty("UPDATE", "false")
+    message.setProperty("NEXT", "")
 
     // Token: chega em header e vira propriedade; o header é esvaziado
     String token = message.getHeaders().get("X-Trp-Snow-Token") as String
-    if (!token) throw new IllegalStateException("Token do ServiceNow ausente")
+    if (!token) throw new IllegalStateException("Token do ServiceNow ausente (header X-Trp-Snow-Token)")
     message.setProperty("SNOW_TOKEN", token)
     message.setHeader("X-Trp-Snow-Token", "")
     message.setHeader("SAP_ApplicationID", prop(message, "NUMBER"))
     message.setHeader("Accept", "application/json")
+    message.setBody("")
 
-    // Prazo do estado atual
     String state = prop(message, "STATE")
+    boolean active = state in ["PENDING", "EXPORTING", "WAITING_TR", "IMPORTING", "DEPLOYING"]
+
+    // Configuração mínima (só cobra quando há algo a fazer)
+    if (active) {
+        ["CTMS_URI", "CTMS_QAS_NODE_ID"].each { k ->
+            if (!prop(message, k)) throw new IllegalStateException("Parâmetro " + k + " vazio no IF_TRP_02")
+        }
+    }
+
+    // URLs resolvidas (endpoints configuráveis, com padrão quando o parâmetro não existe)
+    String base = prop(message, "CTMS_URI")
+    message.setProperty("CAS_EXPORT_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_EXPORT_PATH"), message))
+    message.setProperty("CAS_STATUS_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_STATUS_PATH"), message))
+    message.setProperty("CTMS_QUEUE_URL", base + fill(prop(message, "CTMS_QUEUE_PATH") ?: DEFAULT_QUEUE_PATH, message))
+    message.setProperty("CTMS_ACTION_URL", base + fill(prop(message, "CTMS_ACTION_PATH") ?: DEFAULT_ACTION_PATH, message))
+
+    // 1. Prazo do estado atual
     Map<String, String> limits = [
-        EXPORTING : prop(message, "TIMEOUT_EXPORT_MIN"),
-        WAITING_TR: prop(message, "TIMEOUT_WAITING_TR_MIN"),
-        IMPORTING : prop(message, "TIMEOUT_IMPORT_MIN"),
-        DEPLOYING : prop(message, "TIMEOUT_DEPLOY_MIN")
+        EXPORTING : prop(message, "TIMEOUT_EXPORT_MIN") ?: "15",
+        WAITING_TR: prop(message, "TIMEOUT_WAITING_TR_MIN") ?: "60",
+        IMPORTING : prop(message, "TIMEOUT_IMPORT_MIN") ?: "15",
+        DEPLOYING : prop(message, "TIMEOUT_DEPLOY_MIN") ?: "10"
     ]
-    boolean timedOut = false
     if (limits[state] && prop(message, "STAGE_SINCE")) {
         long elapsedMin = ((System.currentTimeMillis() - parseUtc(prop(message, "STAGE_SINCE")).getTime()) / 60000L) as long
         message.setProperty("STAGE_ELAPSED_MIN", elapsedMin as String)
-        timedOut = elapsedMin > (limits[state] as long)
+        if (elapsedMin > (limits[state] as long)) {
+            fail(message, "Prazo do estado " + state + " vencido (" + elapsedMin + " min; limite " + limits[state] + " min).")
+            message.setProperty("ROUTE", "DONE")
+            return message
+        }
     }
-    message.setProperty("TIMED_OUT", timedOut as String)
 
-    // Validação dos campos do chamado (só no primeiro passo)
-    List<String> errors = []
+    // 2. Primeiro passo: valida os campos e escolhe o modo de export
     if (state == "PENDING") {
+        List<String> errors = []
         if (!(prop(message, "ARTIFACT_ID") ==~ /[A-Za-z0-9_.\-]+/)) errors << "ID técnico do iFlow inválido"
         if (!(prop(message, "VERSION") ==~ /(\d+\.\d+\.\d+|active)/)) errors << "Versão inválida (ex.: 1.0.3)"
         if (!(prop(message, "PACKAGE_ID") ==~ /[A-Za-z0-9_.\-]+/)) errors << "ID técnico do pacote inválido"
+        if (errors) {
+            fail(message, "Campos inválidos no chamado: " + errors.join("; "))
+            message.setProperty("ROUTE", "DONE")
+        } else if (prop(message, "EXPORT_MODE").toUpperCase() == "API") {
+            message.setProperty("ROUTE", "EXPORT")
+        } else {
+            moveTo(message, "WAITING_TR", [:],
+                   "Aguardando a transport request. Clique em Transport no pacote do CPI DEV e escreva " +
+                   prop(message, "NUMBER") + " na descrição.")
+            message.setProperty("ROUTE", "DONE")
+        }
+        return message
     }
-    message.setProperty("VALIDATION_ERROR", errors.join("; "))
 
-    // URLs resolvidas (endpoints configuráveis)
-    message.setProperty("CAS_EXPORT_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_EXPORT_PATH"), message))
-    message.setProperty("CAS_STATUS_URL", prop(message, "CAS_DEV_URL") + fill(prop(message, "CAS_STATUS_PATH"), message))
-    message.setProperty("CTMS_QUEUE_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_QUEUE_PATH"), message))
-    message.setProperty("CTMS_ACTION_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_ACTION_PATH"), message))
-
-    message.setProperty("UPDATE", "false")
-    message.setProperty("NEXT", "")
-    message.setBody("")
+    // 3. Demais estados
+    Map<String, String> routes = [
+        EXPORTING : "CHECK_EXPORT",
+        WAITING_TR: "CHECK_QUEUE",
+        IMPORTING : "CHECK_IMPORT",
+        DEPLOYING : "CHECK_DEPLOY"
+    ]
+    message.setProperty("ROUTE", routes[state] ?: "DONE")
     return message
 }
 
@@ -184,7 +257,7 @@ def Message buildExportRequest(Message message) {
 }
 
 def Message handleExportResponse(Message message) {
-    def opId = jsonPath(bodyJson(message), prop(message, "CAS_OPID_JSONPATH"))
+    def opId = jsonPath(bodyJson(message), prop(message, "CAS_OPID_JSONPATH") ?: "id")
     message.setBody("")
     if (!opId) {
         fail(message, "Content Agent não devolveu o ID da operação de export")
@@ -197,9 +270,9 @@ def Message handleExportResponse(Message message) {
 
 def Message evaluateExportStatus(Message message) {
     def body = bodyJson(message)
-    String status = ((jsonPath(body, prop(message, "CAS_STATUS_JSONPATH")) ?: "") as String).toUpperCase()
+    String status = ((jsonPath(body, prop(message, "CAS_STATUS_JSONPATH") ?: "status") ?: "") as String).toUpperCase()
     message.setBody("")
-    if (status in csvUpper(prop(message, "CAS_DONE_VALUES"))) {
+    if (status in csvUpper(prop(message, "CAS_DONE_VALUES"), "COMPLETED,SUCCEEDED,SUCCESS")) {
         def trId = jsonPath(body, prop(message, "CAS_TRID_JSONPATH"))
         if (!trId) {
             fail(message, "Export concluído sem ID de transport request na resposta")
@@ -207,7 +280,7 @@ def Message evaluateExportStatus(Message message) {
         }
         message.setProperty("TR_ID", trId as String)
         message.setProperty("NEXT", "START_IMPORT")
-    } else if (status in csvUpper(prop(message, "CAS_FAILED_VALUES"))) {
+    } else if (status in csvUpper(prop(message, "CAS_FAILED_VALUES"), "FAILED,ERROR")) {
         fail(message, "Export falhou no Content Agent (status " + status + ")")
     }
     // qualquer outro status: ainda em andamento, nada a fazer neste ciclo
@@ -216,25 +289,25 @@ def Message evaluateExportStatus(Message message) {
 
 // ---------------------------------------------------------------- contingência (sem API de export)
 
-def Message markWaitingTr(Message message) {
-    moveTo(message, "WAITING_TR", [:],
-           "Aguardando a transport request. Clique em Transport no pacote do CPI DEV e escreva " +
-           prop(message, "NUMBER") + " na descrição.")
-    return message
-}
-
 def Message findTrByTicket(Message message) {
     def body = bodyJson(message)
     List list = (body instanceof List) ? body : ((body.transportRequests ?: []) as List)
     String ticket = prop(message, "NUMBER")
-    List matches = list.findAll { (it.description ?: "").toString().contains(ticket) }
+    List<String> importable = csvUpper(prop(message, "CTMS_IMPORTABLE_VALUES"), "INITIAL,IN,REPEATABLE,RE")
+
+    List matches = list.findAll { tr ->
+        boolean sameTicket = (tr.description ?: "").toString().contains(ticket)
+        String status = ((tr.status ?: "") as String).toUpperCase()
+        sameTicket && (!status || status in importable)
+    }
     message.setBody("")
     if (matches.size() > 1) {
-        fail(message, "Há mais de uma request na fila com " + ticket + " na descrição")
+        fail(message, "Há mais de uma request importável na fila com " + ticket + " na descrição")
     } else if (matches.size() == 1) {
         message.setProperty("TR_ID", matches[0].id as String)
         message.setProperty("NEXT", "START_IMPORT")
     }
+    // nenhuma: o dev ainda não clicou em Transport; espera o próximo ciclo
     return message
 }
 
@@ -244,16 +317,16 @@ def Message buildImportRequest(Message message) {
     String tr = prop(message, "TR_ID")
     def trValue = tr.isLong() ? (tr as long) : tr
     setJsonHeaders(message)
-    message.setProperty("CTMS_IMPORT_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_IMPORT_PATH"), message))
+    message.setProperty("CTMS_IMPORT_URL", prop(message, "CTMS_URI") + fill(prop(message, "CTMS_IMPORT_PATH") ?: DEFAULT_IMPORT_PATH, message))
     message.setBody(JsonOutput.toJson([
-        namedUser        : prop(message, "CTMS_NAMED_USER"),
+        namedUser        : prop(message, "CTMS_NAMED_USER") ?: "cpi-orquestracao",
         transportRequests: [trValue]
     ]))
     return message
 }
 
 def Message handleImportResponse(Message message) {
-    def actionId = jsonPath(bodyJson(message), prop(message, "CTMS_ACTIONID_JSONPATH"))
+    def actionId = jsonPath(bodyJson(message), prop(message, "CTMS_ACTIONID_JSONPATH") ?: "actionId")
     message.setBody("")
     if (!actionId) {
         fail(message, "cTMS não devolveu o ID da ação de import")
@@ -262,16 +335,18 @@ def Message handleImportResponse(Message message) {
     moveTo(message, "IMPORTING",
            [u_cpi_tr_id: prop(message, "TR_ID"), u_cpi_action_id: actionId as String],
            "Import da request " + prop(message, "TR_ID") + " iniciado no nó de QAS (ação " + actionId + ").")
+    message.setProperty("NEXT", "")
     return message
 }
 
 def Message evaluateImport(Message message) {
-    String status = ((jsonPath(bodyJson(message), prop(message, "CTMS_ACTION_STATUS_JSONPATH")) ?: "") as String).toUpperCase()
+    String status = ((jsonPath(bodyJson(message), prop(message, "CTMS_ACTION_STATUS_JSONPATH") ?: "status") ?: "") as String).toUpperCase()
     message.setBody("")
-    if (status in ["SUCCEEDED", "WARNING"]) {
+    if (status in csvUpper(prop(message, "CTMS_ACTION_OK_VALUES"), "SUCCEEDED,SU,WARNING,WA")) {
         message.setProperty("NEXT", "START_DEPLOY")
-    } else if (status in ["ERROR", "FATAL"]) {
-        fail(message, "Import da request " + prop(message, "TR_ID") + " terminou em " + status + " no cTMS")
+    } else if (status in csvUpper(prop(message, "CTMS_ACTION_FAILED_VALUES"), "ERROR,ER,FATAL,FA")) {
+        fail(message, "Import da request " + prop(message, "TR_ID") + " terminou em " + status +
+                      " no cTMS. Veja o log da ação " + prop(message, "ACTION_ID") + ".")
     }
     return message
 }
@@ -281,6 +356,7 @@ def Message evaluateImport(Message message) {
 def Message handleDeployResponse(Message message) {
     message.setBody("")
     moveTo(message, "DEPLOYING", [:], "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
+    message.setProperty("NEXT", "")
     return message
 }
 
@@ -298,29 +374,27 @@ def Message evaluateDeploy(Message message) {
     String status = ((d?.Status ?: "") as String).toUpperCase()
     String runtimeVersion = (d?.Version ?: "") as String
     String wanted = prop(message, "VERSION")
+    String artifact = prop(message, "ARTIFACT_ID")
     message.setBody("")
 
-    if (status == "STARTED" && (wanted == "active" || runtimeVersion == wanted)) {
-        moveTo(message, "SUCCESS", [u_cpi_message: "STARTED " + runtimeVersion],
-               "iFlow " + prop(message, "ARTIFACT_ID") + " versão " + runtimeVersion + " em QAS com status STARTED " +
-               "(transport request " + prop(message, "TR_ID") + ").")
-    } else if (status == "ERROR") {
-        fail(message, "iFlow " + prop(message, "ARTIFACT_ID") + " ficou em ERROR em QAS. Veja o Monitor do CPI QAS.")
+    // O que está no runtime é o deploy deste chamado, ou um deploy antigo?
+    Long deployedOn = parseDeployedOn(d?.DeployedOn)
+    Long since = prop(message, "STAGE_SINCE") ? parseUtc(prop(message, "STAGE_SINCE")).getTime() : null
+    boolean fresh = (deployedOn == null || since == null) ? true : (deployedOn >= since - CLOCK_SKEW_MS)
+
+    if (status in ["ERROR", "FAILED"]) {
+        fail(message, "iFlow " + artifact + " ficou em " + status + " em QAS. Veja Monitor > Manage Integration Content no CPI QAS.")
+    } else if (status == "STARTED" && fresh) {
+        if (wanted == "active" || runtimeVersion == wanted) {
+            moveTo(message, "SUCCESS", [u_cpi_message: "STARTED " + runtimeVersion],
+                   "iFlow " + artifact + " versão " + runtimeVersion + " em QAS com status STARTED " +
+                   "(transport request " + prop(message, "TR_ID") + ").")
+        } else {
+            fail(message, "iFlow " + artifact + " subiu em QAS na versão " + runtimeVersion + ", mas o chamado pediu " + wanted +
+                          ". O transporte leva a versão que estava salva em DEV no momento do export.")
+        }
     }
-    // STARTING, ou STARTED com versão antiga: espera o próximo ciclo
-    return message
-}
-
-// ---------------------------------------------------------------- estados finais
-
-def Message markTimeout(Message message) {
-    fail(message, "Prazo do estado " + prop(message, "STATE") + " vencido (" +
-                  prop(message, "STAGE_ELAPSED_MIN") + " min).")
-    return message
-}
-
-def Message markValidationError(Message message) {
-    fail(message, "Campos inválidos no chamado: " + prop(message, "VALIDATION_ERROR"))
+    // STARTING, ou STARTED de um deploy antigo: espera o próximo ciclo
     return message
 }
 
@@ -350,6 +424,13 @@ def Message handleError(Message message) {
         detail = "HTTP " + code + ": " + resp.take(300)
     }
 
+    logHeader(message, "TRP_Error", (prop(message, "NUMBER") ?: "?") + " / " + (prop(message, "STATE") ?: "?") + ": " + detail)
+
+    if (!prop(message, "SYS_ID") || !prop(message, "SNOW_TOKEN")) {
+        // Falhou antes de ler o chamado: não há o que atualizar no ServiceNow
+        throw new IllegalStateException("Erro antes de identificar o chamado: " + detail)
+    }
+
     boolean isTransient = (code in TRANSIENT_HTTP) ||
                           detail.startsWith("TRANSIENT") ||
                           ex instanceof java.net.SocketTimeoutException ||
@@ -361,7 +442,7 @@ def Message handleError(Message message) {
 
     if (isTransient && retries + 1 < maxRetries) {
         setUpdate(message, [u_cpi_retries: (retries + 1) as String],
-                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + "): " + detail)
+                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
     } else {
         fail(message, "Erro no estado " + prop(message, "STATE") + ": " + detail)
     }
