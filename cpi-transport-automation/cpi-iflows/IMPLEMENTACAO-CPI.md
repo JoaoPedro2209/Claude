@@ -12,7 +12,8 @@ Siga os passos na ordem. Cada passo diz o que criar, onde clicar, o que preenche
 > - **iFlows mais simples de montar.** O script decide a rota e os roteadores só comparam um valor. Saíram os subprocessos locais e 6 passos. A lista de parâmetros obrigatórios caiu para poucos itens; o resto tem padrão no script.
 > - **Correções nos scripts.** Troca da API `getApi` (descontinuada pela SAP) por `getService`; a checagem do deploy agora confere a **data do deploy** e avisa quando a versão que subiu é diferente da pedida; os status do cTMS aceitam palavra ou código curto; a busca no ServiceNow é montada e codificada pelo script.
 > - **Passos novos:** folha de valores, testes das APIs antes de construir, pedido pronto para o time do ServiceNow, iFlow de teste de conexão, e uma tabela de problemas comuns.
-> - Os scripts passaram em 82 verificações locais, no Groovy 2.4 e no Groovy 4. **Os iFlows ainda não rodaram em nenhum tenant**: a primeira execução real é a sua.
+> - O procedimento foi executado num laboratório ([`lab/`](lab/README.md)): os cinco iFlows montados sobre o Apache Camel 3.14 (o motor do Cloud Integration), com os scripts reais, falando HTTP com simuladores de ServiceNow, cTMS e CPI QAS. São 35 cenários em 64 combinações de comportamento do tenant, mais 100 verificações unitárias dos scripts (Groovy 2.4 e 4). O laboratório achou 6 pontos fracos, já corrigidos nesta versão (seção 14.1).
+> - **Os iFlows ainda não rodaram em nenhum tenant SAP nem contra um ServiceNow de verdade**: a primeira execução real é a sua. O laboratório diminui o risco, não substitui esse teste.
 
 ---
 
@@ -596,7 +597,7 @@ Sender --ProcessDirect--> Start -> [1 Script] -> [2 Request Reply] -> [3 Script]
 | Timeout (in ms) | 60000 |
 | Throw Exception on Failure | Marcado |
 | Request Headers | `Authorization\|Content-Type\|Accept` |
-| Response Headers | Vazio |
+| Response Headers | Deixe o valor padrão |
 
 No campo, os nomes são separados por barra vertical, sem espaços: `Authorization|Content-Type|Accept`. Vale o mesmo para todas as tabelas de adapter deste guia.
 
@@ -667,7 +668,7 @@ Para cada linha: **Add** → Action = Create, Name = a coluna Name, Source Type 
 | Timeout (in ms) | 30000 |
 | Throw Exception on Failure | Marcado |
 | Request Headers | `Content-Type\|Accept` |
-| Response Headers | Vazio |
+| Response Headers | Deixe o valor padrão |
 
 ### 10.4 Runtime, parâmetros e deploy
 
@@ -697,7 +698,7 @@ Cuidados:
 
 ## 11. Passo 8 — IF_TRP_99_ConnectionTest
 
-iFlow temporário. Ele roda **uma vez a cada deploy** e prova, de uma só vez: Keystore, credencial, JWT, cadastro no ServiceNow, token, e gravação no chamado.
+iFlow temporário. Ele roda **uma vez a cada deploy** e prova, de uma só vez: Keystore, credencial, JWT, cadastro no ServiceNow, token, gravação no chamado e a existência das colunas `u_cpi_*` com permissão de escrita.
 
 **Script:** [`scripts/TRP_99_ConnectionTest.groovy`](scripts/TRP_99_ConnectionTest.groovy)
 
@@ -729,8 +730,9 @@ Timer -> [1 Content Modifier] -> [2 Request Reply] -> [3 Script] -> [4 Router] -
 ### 11.3 Teste 2 — token e gravação
 
 1. **Configure**: `TEST_SYS_ID` = sys_id do chamado de teste (linha 14). **Deploy** de novo.
-2. **Sucesso:** Custom Header `TRP_UpdateTest = OK` e, no chamado, uma work note "[Transporte CPI] Teste de conexão do CPI. Pode ignorar.".
+2. **Sucesso:** Custom Header `TRP_UpdateTest = OK - work note e campo u_cpi_message gravados…` e, no chamado, a work note "[Transporte CPI] Teste de conexão do CPI. Pode ignorar." e o campo `u_cpi_message` = "Teste de conexão do CPI".
 3. Confira no chamado que nenhum outro campo mudou.
+4. **Falha com `[TRP-GRAVACAO] O ServiceNow respondeu 200 mas não gravou: u_cpi_message…`:** a coluna não existe em `sc_req_item` ou o usuário de integração não pode gravar nela. O ServiceNow não devolve erro nesse caso (responde 200 e ignora o campo), por isso o `IF_TRP_04` confere a resposta. Volte à seção 6.2 (colunas) e 6.6 (ACL).
 
 Depois dos dois testes, **Undeploy** o `IF_TRP_99_ConnectionTest`. Mantenha-o no pacote: ele serve de novo quando o certificado for trocado.
 
@@ -820,7 +822,7 @@ As rotas `EXPORT` e `CHECK_EXPORT` entram na Etapa B (seção 15).
 
 ### 12.6 As chamadas (Request Reply)
 
-Crie um **Receiver** para cada chamada. Em todas as chamadas HTTP: Proxy Type **Internet**, Timeout **60000**, Response Headers **vazio**.
+Crie um **Receiver** para cada chamada. Em todas as chamadas HTTP: Proxy Type **Internet**, Timeout **60000**, Response Headers no valor padrão (os scripts funcionam com ou sem os headers da resposta; isso foi testado no laboratório).
 
 | Ref. | Receiver | Adapter | Address | Query | Method | Authentication / Credential Name | Request Headers | Throw Exception on Failure |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -943,7 +945,7 @@ Não adicione Exception Subprocess neste iFlow. Se o token ou a busca falharem, 
 | Timeout (in ms) | 60000 |
 | Throw Exception on Failure | Marcado |
 | Request Headers | `Authorization\|Accept` |
-| Response Headers | Vazio |
+| Response Headers | Deixe o valor padrão |
 
 O script `prepareSearch` monta a query já codificada. Ela pede só os chamados do item de catálogo do transporte que estão num estado em andamento, do mais antigo para o mais novo, com datas em UTC.
 
@@ -994,6 +996,27 @@ Em cada teste, confira três lugares: o **chamado** (status, `u_cpi_tr_id`, work
 
 Aprovados os testes 1 a 7: `TIMEOUT_WAITING_TR_MIN` de volta para `60`, log em **Info**, `TRP_ENABLED = true`, e libere o item de catálogo para um time piloto antes de abrir para todos.
 
+### 14.1 O que o laboratório já provou (e o que ele não prova)
+
+Os oito testes acima, e mais 27, já foram executados no laboratório da pasta [`lab/`](lab/README.md). Para repetir: `cd lab && ./run-lab.sh` (precisa de Java, Maven, Python 3 e openssl).
+
+**Como é o laboratório:** os cinco iFlows são montados passo a passo como nas tabelas deste guia, sobre o Apache Camel 3.14, e executam os arquivos de `scripts/` sem alteração. As chamadas HTTP são de verdade, contra simuladores que reproduzem as regras que mais derrubam integrações: o ServiceNow confere a assinatura RS256 do JWT com o certificado X.509, o `kid`, `aud`, `iss`, `sub`, validade e `jti` repetido; ignora em silêncio campo sem coluna ou sem permissão; ignora filtro inválido e devolve a tabela inteira. O cTMS tem fila, import por ID e ação. O CPI QAS devolve 404 logo após o deploy, depois `STARTING`, depois `STARTED` ou `ERROR`.
+
+**Por que 64 combinações:** seis comportamentos do tenant não ficam claros na documentação pública (as propriedades atravessam o ProcessDirect? só os headers liberados passam? os headers voltam? o adapter HTTP copia os headers da resposta? o código HTTP fica disponível? o erro de um iFlow chamado chega embrulhado?). O laboratório roda tudo nas 64 combinações. O procedimento passa em todas, então não depende de qual delas é a do seu tenant.
+
+**Pontos fracos que o laboratório achou e que esta versão corrige:**
+
+| # | O que acontecia | Correção |
+| --- | --- | --- |
+| 1 | Coluna `u_cpi_*` inexistente ou sem permissão de escrita: o ServiceNow respondia 200, o chamado ficava em `PENDING` para sempre e ganhava uma work note a cada 2 minutos, sem erro em lugar nenhum | O `IF_TRP_04` confere a resposta e falha com `[TRP-GRAVACAO]`; o `IF_TRP_99` grava `u_cpi_message` para acusar isso já no Passo 8 |
+| 2 | Coluna `u_cpi_transport_status` inexistente ou ilegível: o ServiceNow ignorava o filtro e devolvia todos os chamados do item | O `IF_TRP_01` falha com "chamados fora do filtro" e não processa nada |
+| 3 | ServiceNow fora do ar logo depois de o import ser disparado: o chamado ficava em `WAITING_TR` até vencer o prazo, com a request já importada | O ciclo seguinte vê a request em import ou importada na fila e segue para o deploy |
+| 4 | Request de outro chamado com número parecido (`RITM00100119` contém `RITM0010011`) era contada como duplicada | O número precisa aparecer como palavra inteira na descrição |
+| 5 | Dois ciclos do Timer ao mesmo tempo: o segundo recebia "request não importável" do cTMS e marcava `FAILED` | Import recusado vira nova conferência da fila no ciclo seguinte (até `MAX_RETRIES`) |
+| 6 | Sem o header `CamelHttpResponseCode`, a consulta do runtime marcava `FAILED` | O resultado é deduzido pelo corpo da resposta |
+
+**O que o laboratório não prova:** que os simuladores se comportam como os sistemas reais em tudo. Os nomes de campos e status da API do cTMS, o comportamento do ServiceNow do banco (servidor de autorização, ACLs, Flow) e as telas do editor do CPI continuam sendo confirmados só no seu ambiente: Passo 2, Passo 8 e os testes da tabela acima. A Etapa B foi exercitada com uma API de export inventada, só para validar a sequência de estados.
+
 ---
 
 ## 15. Etapa B — Ligar o export por API
@@ -1002,7 +1025,7 @@ Só depois de: (1) migração para o Content Agent concluída ([`../MIGRACAO-CPI
 
 ### 15.1 Preparação
 
-1. No subaccount onde está a instância `standard` do Content Agent: crie a service key `key-cas-dev-trp`.
+1. A documentação oficial do Content Agent ("Consuming APIs" e "Create Instance") diz que as APIs só existem no plano **`application`**, com a role **Export**. A sua instância `Content_Agent` é `standard`: ela atende a tela e o botão Transport, não a API. Crie uma instância do Content Agent no plano `application` com a role `Export`, no subaccount de onde o conteúdo sai (DEV), e nela a service key `key-cas-dev-trp`. As destinations `CloudIntegration` e `TransportManagementService` precisam existir nesse mesmo subaccount.
 2. No CPI de orquestração: crie a credencial **OAuth2 Client Credentials** `TRP_CAS_DEV` com o token URL, client ID e secret dessa key.
 3. Se a migração criou um nó de QAS novo (`QAS_CAS`), pegue o ID dele (Teste 1 do Passo 2).
 
@@ -1051,6 +1074,8 @@ Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) 
 | A busca volta vazia com chamado aberto | ACL esconde o registro; `SNOW_CAT_ITEM_SYSID` errado; o flow não gravou `PENDING`; fora do horário do Timer | Confira cada item. Teste a mesma busca no REST API Explorer do ServiceNow com o usuário de integração |
 | Chamado vai para `FAILED` com "Campos inválidos" e os campos estão preenchidos no formulário | As colunas `u_cpi_artifact_id`, `u_cpi_artifact_version`, `u_cpi_package_id` estão vazias ou com nome diferente | O flow precisa copiar as variáveis para as colunas (6.4, passo 2). Nomes exatos da 6.2 |
 | HTTP 404 ao gravar | `SNOW_TABLE` errado, ou o método PATCH não é aceito | Confira a tabela; troque para PUT (9.2) |
+| `[TRP-GRAVACAO] O ServiceNow respondeu 200 mas não gravou: …` | A coluna citada não existe em `sc_req_item`, ou o usuário de integração não tem permissão de escrita nela. O ServiceNow não devolve erro: ignora o campo | Crie a coluna com o nome exato (6.2) e libere a escrita (6.6). Depois rode o `IF_TRP_99` de novo |
+| `IF_TRP_01` Failed com "O ServiceNow devolveu N de M chamados fora do filtro" | A coluna `u_cpi_transport_status` não existe ou o usuário de integração não pode lê-la. O ServiceNow ignora a condição e devolve todos os chamados do item | Mesma correção. Nenhum chamado é alterado enquanto isso |
 | O prazo estoura na hora, ou nunca estoura | `u_cpi_stage_since` gravado fora de UTC | O CPI grava em UTC pela Table API. Não preencha esse campo por script com horário local |
 
 ### 16.2 Entre iFlows
@@ -1071,7 +1096,10 @@ Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) 
 | HTTP 401 | Credencial `TRP_CTMS` com token URL sem `/oauth/token`, ou secret trocado | Refaça com os dados da `key-tms-trp` |
 | HTTP 403 | Key de uma instância que não é plano `standard` | Crie a key na instância `standard` |
 | HTTP 404 na fila, no import ou na ação | `CTMS_QAS_NODE_ID` errado, ou caminho diferente na sua versão da API | Repita os testes do Passo 2 e ajuste os parâmetros do bloco B |
-| Fica em `WAITING_TR` e a request está na fila | A descrição da request não contém o número do chamado; a request está em outro nó; o status dela não é "importável" | Compare a descrição com o número (RITM…); confira o nó; veja o `status` no Teste 2 e ajuste `CTMS_IMPORTABLE_VALUES` |
+| Fica em `WAITING_TR` e a request está na fila | A descrição da request não contém o número do chamado como palavra inteira (`RITM0012345`, sem letra ou dígito colado antes ou depois); a request está em outro nó; o status dela não é "importável" | Compare a descrição com o número (RITM…); confira o nó; veja o `status` no Teste 2 e ajuste `CTMS_IMPORTABLE_VALUES` |
+| Work note "O cTMS recusou o import da request N; a fila será conferida de novo" | Outro ciclo (ou alguém na tela do cTMS) começou o import antes | Nada: o ciclo seguinte acompanha pela fila. Se a recusa se repetir `MAX_RETRIES` vezes, o chamado vai para `FAILED` com o texto do cTMS |
+| Work note "A request N já estava importada no cTMS" | O import aconteceu e o chamado não ficou sabendo (ServiceNow fora do ar na hora, ou import feito à mão) | Nada: o deploy segue normalmente |
+| `FAILED` "A request N do chamado está com status ERROR na fila" | Um import dessa request falhou fora da automação | Veja o log no cTMS, corrija, e volte o chamado para `WAITING_TR` depois de um novo Transport |
 | `FAILED` "Há mais de uma request importável na fila com …" | O dev clicou em Transport duas vezes com o mesmo número | Apague a request sobrando no cTMS e volte o status do chamado para `WAITING_TR` |
 | `FAILED` "cTMS não devolveu o ID da ação de import" | O campo do ID da ação tem outro nome | Parâmetro `CTMS_ACTIONID_JSONPATH` |
 | Fica em `IMPORTING` até o prazo | O status final da ação tem um valor que o script não conhece | Veja o valor no Teste 4 e ajuste `CTMS_ACTION_OK_VALUES` |
@@ -1086,6 +1114,8 @@ Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) 
 | HTTP 403 no deploy falando de **CSRF** | O tenant exige token CSRF mesmo com OAuth (não é o comum) | Antes do deploy, faça um GET em `{{CPI_QAS_URL}}/api/v1/` com o header `X-CSRF-Token: Fetch`, e mande no POST o `X-CSRF-Token` devolvido e os cookies. Me avise que eu acrescento esse passo ao script |
 | HTTP 404 no deploy | O iFlow não existe no workspace de QAS com esse ID | O ID do chamado é o técnico? O import trouxe mesmo o pacote? |
 | HTTP 403 na consulta do runtime | Falta `MonitoringDataRead` | Atualize a instância e crie uma key nova |
+| "Consulta do runtime em QAS não devolveu JSON" | A chamada **C** foi sem `Accept: application/json` e a API respondeu em XML | Request Headers da chamada C = `Accept` (12.6) |
+| Tentativas contando com "Consulta do runtime em QAS retornou HTTP desconhecido: …" | O tenant não expõe o código HTTP e a resposta não é a esperada. O texto depois dos dois-pontos é a resposta do CPI QAS | Leia a resposta: normalmente é credencial ou role (linhas acima) |
 | `FAILED` "ficou em ERROR em QAS" | O iFlow não iniciou em QAS | **Manage Integration Content** no CPI QAS mostra o motivo (credencial, endpoint, parâmetro de QAS) |
 | `FAILED` "subiu em QAS na versão X, mas o chamado pediu Y" | A versão salva em DEV na hora do Transport não era a do chamado | Salve a versão certa em DEV, novo Transport, novo chamado |
 | Fica em `DEPLOYING` até o prazo, com o iFlow `STARTED` | O deploy não mudou a data (`DeployedOn`), ou os relógios diferem mais de 2 minutos | Veja `DeployedOn` no Teste 5. Se o deploy realmente aconteceu, me mande o valor para ajustarmos a tolerância |
@@ -1100,7 +1130,9 @@ Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) 
 | Achar as execuções de um chamado | **Monitor Message Processing**, busca pelo número do chamado |
 | Reprocessar um chamado em `FAILED` | Corrija a causa. Depois altere `u_cpi_transport_status` no chamado: `PENDING` recomeça do início; `WAITING_TR` procura a request de novo; `IMPORTING` ou `DEPLOYING` refaz só a checagem. Ao voltar para um estado com prazo, atualize também `u_cpi_stage_since` para agora |
 | Chamado parado num estado | O Timer está rodando? O ciclo do `IF_TRP_01` terminou com erro? Está dentro do horário configurado? |
-| Uma atualização no ServiceNow falhou depois de o import ter sido iniciado | No ciclo seguinte o CPI tenta iniciar o import de novo e o cTMS pode recusar. O chamado vai para `FAILED`. Confira no cTMS se a request foi importada e ajuste o status do chamado para `IMPORTING` (com `u_cpi_action_id`) ou `DEPLOYING` |
+| Uma atualização no ServiceNow falhou depois de o import ter sido iniciado | A execução fica **Failed** no monitor e o chamado não muda. No ciclo seguinte o CPI vê na fila do cTMS que a request está em import ou já importada e segue sozinho para o deploy (work note "já estava importada") |
+| Mais de 20 chamados em andamento ao mesmo tempo | Cada ciclo pega os 20 mais antigos (`SNOW_LIMIT`), e chamado esperando o clique do dev ocupa vaga. Aumente `SNOW_LIMIT` |
+| Um ciclo demora mais que o intervalo do Timer | Dois ciclos podem rodar juntos. O procedimento tolera (testado no laboratório), mas se virar rotina aumente o intervalo para 5 minutos |
 | Trocar o certificado do JWT | Crie um par novo no Keystore (alias novo). Entregue o certificado; o ServiceNow cadastra um **segundo** Verifier Map com Kid novo. Troque `SNOW_JWT_KEY_ALIAS` e `SNOW_JWT_KID`, **Deploy**, rode o `IF_TRP_99`. Só então remova o par e o Verifier Map antigos |
 | Trocar uma service key | Crie a key nova, atualize a credencial no Security Material (**Deploy** da credencial), teste, e só então apague a key antiga no BTP |
 | Mudar um script | Edite o arquivo em `scripts/`, rode os testes locais ([`tests/README.md`](tests/README.md)), cole no iFlow e **Deploy** |
@@ -1111,17 +1143,17 @@ Comece sempre pelo **texto do erro**: no chamado (`u_cpi_message` e work notes) 
 
 | # | Ponto | Impacto | Como confirmar |
 | --- | --- | --- | --- |
-| 1 | API de export do Content Agent: caminho, corpo, status e onde vem o ID da request | Só a Etapa B. Parâmetros do bloco C | Com o seu login: guia do Content Agent → "Consuming APIs"; api.sap.com |
+| 1 | API de export do Content Agent: caminho, corpo, status e onde vem o ID da request. Já confirmado na documentação: as APIs só existem no plano `application` com a role `Export` (15.1). Falta o contrato da API, que fica atrás de login no api.sap.com | Só a Etapa B. Parâmetros do bloco C | Com o seu login: api.sap.com → "Content Agent Service" → especificação da API |
 | 2 | Caminhos e campos da API v2 do cTMS (fila, import por ID, ação) | Etapa A. O script usa os caminhos padrão | Passo 2 deste guia. Se diferir, bloco B |
 | 3 | Servidor de autorização do ServiceNow (o próprio ServiceNow ou o IdP corporativo), nome do parâmetro (`assertion` ou `client_assertion`) e escopo | Parâmetros do `IF_TRP_03` | Time do ServiceNow / Hub de Arquitetura |
 | 4 | Keystore do CPI aceito como cofre da chave, ou HSM obrigatório | Se HSM: a assinatura do JWT sai do script e vira uma chamada ao HSM | Segurança da Informação |
 | 5 | Método PATCH disponível no adapter HTTP do tenant | Passo 6. Alternativa: PUT | Lista de métodos do adapter |
 | 6 | Intervalo de 2 minutos no Timer | Passo 10. Alternativa: 5 minutos | Lista de opções do Timer |
 | 7 | Juntar rotas de um roteador no mesmo passo | Passo 9. Alternativa: repetir o roteador em cada rota | Editor do tenant |
-| 8 | Repasse do header `X-Trp-Snow-Token` pelo ProcessDirect | Todos. Já prevenido com Allowed Header(s) | Passo 8 |
+| 8 | Repasse do header `X-Trp-Snow-Token` pelo ProcessDirect | Todos. Já prevenido com Allowed Header(s). O laboratório rodou com e sem repasse de propriedades e de headers: funciona nos dois | Passo 8 |
 | 9 | Deploy por API sem token CSRF com OAuth | Passo 9. Alternativa na seção 16.4 | Teste 6 do Passo 2 |
 
-O que **não** foi testado: a montagem dos iFlows num tenant real, as chamadas reais ao ServiceNow, ao cTMS e ao CPI QAS. O que **foi** testado: a lógica dos scripts, fora do CPI, com 82 verificações (Groovy 2.4 e 4), usando versões simuladas das APIs do CPI.
+O que **não** foi testado: a montagem dos iFlows num tenant SAP real e as chamadas reais ao ServiceNow, ao cTMS e ao CPI QAS. O que **foi** testado: os scripts com 100 verificações unitárias (Groovy 2.4 e 4) e o procedimento inteiro no laboratório da seção 14.1 (35 cenários em 64 combinações de comportamento do tenant, sobre o Apache Camel 3.14, com HTTP e JWT de verdade contra simuladores).
 
 ---
 
@@ -1170,6 +1202,8 @@ Só crie a propriedade no Content Modifier "Config" do `IF_TRP_02` se o Passo 2 
 | `CTMS_ACTION_OK_VALUES` | `succeeded,su,warning,wa` |
 | `CTMS_ACTION_FAILED_VALUES` | `error,er,fatal,fa` |
 | `CTMS_IMPORTABLE_VALUES` | `initial,in,repeatable,re` |
+| `CTMS_RUNNING_VALUES` (request em import) | `running,ru` |
+| `CTMS_IMPORTED_VALUES` (request já importada) | `succeeded,su` |
 | `ACTIVE_STATES` (iFlow 01) | `PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING` |
 | `SNOW_JWT_TTL_SECONDS` (iFlow 03) | `300` |
 
@@ -1218,6 +1252,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 
 /** Campos do sc_req_item que o IF_TRP_02 precisa. */
+@Field static final String DEFAULT_ACTIVE_STATES = "PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING"
 @Field static final List<String> FIELDS = [
     "sys_id", "number",
     "u_cpi_transport_status", "u_cpi_stage_since", "u_cpi_retries",
@@ -1246,7 +1281,7 @@ def Message prepareSearch(Message message) {
     if (!prop(message, "SNOW_CAT_ITEM_SYSID")) {
         throw new IllegalStateException("Parâmetro SNOW_CAT_ITEM_SYSID vazio")
     }
-    String states = prop(message, "ACTIVE_STATES") ?: "PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING"
+    String states = prop(message, "ACTIVE_STATES") ?: DEFAULT_ACTIVE_STATES
     String encodedQuery = "cat_item=" + prop(message, "SNOW_CAT_ITEM_SYSID") +
                           "^u_cpi_transport_statusIN" + states.replace(" ", "") +
                           "^ORDERBYsys_created_on"
@@ -1272,6 +1307,16 @@ def Message ticketsToLines(Message message) {
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     List result = (json.result ?: []) as List
+
+    // O ServiceNow IGNORA condições de filtro inválidas (coluna que não existe ou que o usuário não
+    // pode ler) e devolve a tabela inteira. Se voltou chamado fora dos estados pedidos, é isso.
+    List<String> states = (prop(message, "ACTIVE_STATES") ?: DEFAULT_ACTIVE_STATES).split(",").collect { it.trim() }
+    List outside = result.findAll { t -> !(((t.u_cpi_transport_status ?: "") as String) in states) }
+    if (outside) {
+        throw new IllegalStateException("O ServiceNow devolveu " + outside.size() + " de " + result.size() +
+            " chamados fora do filtro (ex.: " + (outside[0].number ?: "?") + "). O filtro foi ignorado: confira se a coluna " +
+            "u_cpi_transport_status existe em " + "sc_req_item e se o usuário de integração pode lê-la. Nada foi processado.")
+    }
 
     List<String> lines = result.collect { t ->
         Map ticket = [:]
@@ -1353,6 +1398,10 @@ import java.text.SimpleDateFormat
 @Field static final String DEFAULT_QUEUE_PATH = "/v2/nodes/#NODE_ID#/transportRequests"
 @Field static final String DEFAULT_IMPORT_PATH = "/v2/nodes/#NODE_ID#/transportRequests/import"
 @Field static final String DEFAULT_ACTION_PATH = "/v2/actions/#ACTION_ID#"
+/** Marca do erro "o ServiceNow não gravou" lançado pelo IF_TRP_04 (TRP_04_SnowUpdate.groovy). */
+@Field static final String WRITE_MARKER = "[TRP-GRAVACAO]"
+/** Respostas do cTMS ao import que podem ser só corrida entre dois ciclos (request já em import). */
+@Field static final List<Integer> IMPORT_REJECTED_HTTP = [400, 404, 409, 412, 422, 423]
 
 // ---------------------------------------------------------------- utilitários
 
@@ -1597,23 +1646,44 @@ def Message evaluateExportStatus(Message message) {
 
 // ---------------------------------------------------------------- contingência (sem API de export)
 
+/** O número do chamado aparece na descrição como palavra inteira? (RITM0010011 não casa com RITM00100119) */
+boolean mentions(Object description, String ticket) {
+    if (!ticket) return false
+    String pattern = "(?<![A-Za-z0-9])" + java.util.regex.Pattern.quote(ticket) + "(?![A-Za-z0-9])"
+    return (((description ?: "") as String) =~ pattern).find()
+}
+
 def Message findTrByTicket(Message message) {
     def body = bodyJson(message)
     List list = (body instanceof List) ? body : ((body.transportRequests ?: []) as List)
     String ticket = prop(message, "NUMBER")
     List<String> importable = csvUpper(prop(message, "CTMS_IMPORTABLE_VALUES"), "INITIAL,IN,REPEATABLE,RE")
+    List<String> running = csvUpper(prop(message, "CTMS_RUNNING_VALUES"), "RUNNING,RU")
+    List<String> imported = csvUpper(prop(message, "CTMS_IMPORTED_VALUES"), "SUCCEEDED,SU")
+    List<String> broken = csvUpper(prop(message, "CTMS_ACTION_FAILED_VALUES"), "ERROR,ER,FATAL,FA")
 
-    List matches = list.findAll { tr ->
-        boolean sameTicket = (tr.description ?: "").toString().contains(ticket)
-        String status = ((tr.status ?: "") as String).toUpperCase()
-        sameTicket && (!status || status in importable)
-    }
+    Closure<String> statusOf = { tr -> ((tr.status ?: "") as String).toUpperCase() }
+    List mine = list.findAll { tr -> mentions(tr.description, ticket) }
+    List ready = mine.findAll { tr -> !statusOf(tr) || statusOf(tr) in importable }
     message.setBody("")
-    if (matches.size() > 1) {
+
+    if (ready.size() > 1) {
         fail(message, "Há mais de uma request importável na fila com " + ticket + " na descrição")
-    } else if (matches.size() == 1) {
-        message.setProperty("TR_ID", matches[0].id as String)
+    } else if (ready.size() == 1) {
+        message.setProperty("TR_ID", ready[0].id as String)
         message.setProperty("NEXT", "START_IMPORT")
+    } else if (mine.any { tr -> statusOf(tr) in running }) {
+        // import já em andamento (disparado por outro ciclo ou por alguém na tela do cTMS): espera
+    } else if (mine.any { tr -> statusOf(tr) in imported }) {
+        // A request já foi importada, mas o chamado não ficou sabendo (por exemplo, o ServiceNow
+        // estava fora do ar na hora de gravar). Segue direto para o deploy.
+        def done = mine.findAll { tr -> statusOf(tr) in imported }.max { tr -> (tr.id as String).isLong() ? (tr.id as long) : 0L }
+        message.setProperty("TR_ID", done.id as String)
+        message.setProperty("TR_RECOVERED", "true")
+        message.setProperty("NEXT", "START_DEPLOY")
+    } else if (mine.any { tr -> statusOf(tr) in broken }) {
+        def bad = mine.find { tr -> statusOf(tr) in broken }
+        fail(message, "A request " + bad.id + " do chamado está com status " + statusOf(bad) + " na fila do nó de QAS no cTMS.")
     }
     // nenhuma: o dev ainda não clicou em Transport; espera o próximo ciclo
     return message
@@ -1663,22 +1733,44 @@ def Message evaluateImport(Message message) {
 
 def Message handleDeployResponse(Message message) {
     message.setBody("")
-    moveTo(message, "DEPLOYING", [:], "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
+    Map extra = prop(message, "TR_ID") ? [u_cpi_tr_id: prop(message, "TR_ID")] : [:]
+    String recovered = prop(message, "TR_RECOVERED") == "true" ?
+        "A request " + prop(message, "TR_ID") + " já estava importada no cTMS. " : ""
+    moveTo(message, "DEPLOYING", extra, recovered + "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
     message.setProperty("NEXT", "")
     return message
 }
 
 def Message evaluateDeploy(Message message) {
+    String raw = message.getBody(String) ?: ""
+    def json = null
+    try {
+        json = raw.trim() ? new JsonSlurper().parseText(raw) : null
+    } catch (Exception ignored) {
+        // corpo que não é JSON (por exemplo XML, quando o header Accept não chegou)
+    }
     int code = (message.getHeaders().get("CamelHttpResponseCode") ?: 0) as int
+    if (code == 0) {
+        // O header com o código HTTP não está disponível: deduz pela resposta.
+        String err = (json instanceof Map && json.error) ? JsonOutput.toJson(json.error).toLowerCase() : ""
+        if (json instanceof Map && json.d instanceof Map) code = 200
+        else if (err.contains("not found") || err.contains("notfound")) code = 404
+    }
     if (code == 404) {               // ainda não apareceu no runtime
         message.setBody("")
         return message
     }
-    if (code != 200) {
-        String prefix = (code in TRANSIENT_HTTP) ? "TRANSIENT: " : ""
-        throw new IllegalStateException(prefix + "Consulta do runtime em QAS retornou HTTP " + code)
+    if (code == 200 && !(json instanceof Map && json.d instanceof Map)) {
+        throw new IllegalStateException("Consulta do runtime em QAS não devolveu JSON (confira o header Accept: application/json " +
+                                        "no Request Headers da chamada): " + raw.take(120))
     }
-    def d = bodyJson(message)?.d
+    if (code != 200) {
+        // sem código conhecido, trata como passageiro: as tentativas contam e o motivo fica registrado
+        String prefix = (code == 0 || code in TRANSIENT_HTTP) ? "TRANSIENT: " : ""
+        throw new IllegalStateException(prefix + "Consulta do runtime em QAS retornou HTTP " + (code ?: "desconhecido") +
+                                        (raw ? ": " + raw.take(200) : ""))
+    }
+    def d = json.d
     String status = ((d?.Status ?: "") as String).toUpperCase()
     String runtimeVersion = (d?.Version ?: "") as String
     String wanted = prop(message, "VERSION")
@@ -1720,15 +1812,29 @@ def Message buildUpdateRequest(Message message) {
 
 // ---------------------------------------------------------------- erros
 
+/** A exceção e as causas dela (o erro de um iFlow chamado pode chegar embrulhado em outra exceção). */
+List causeChain(Object ex) {
+    List chain = []
+    def cur = ex
+    while (cur != null && chain.size() < 10 && !chain.any { it.is(cur) }) {
+        chain << cur
+        cur = cur.getCause()
+    }
+    return chain
+}
+
 def Message handleError(Message message) {
     def ex = message.getProperty("CamelExceptionCaught")
+    List chain = causeChain(ex)
+    List<String> messages = chain.collect { (it.getMessage() ?: "") as String }.findAll { it }
     int code = 0
-    String detail = (ex?.getMessage() ?: "erro desconhecido") as String
+    String detail = messages ? messages[0] : (ex != null ? ex.toString() : "erro desconhecido")
 
     // Erro HTTP do adapter (a classe muda entre versões do runtime; testa pelo método)
-    if (ex != null && ex.metaClass.respondsTo(ex, "getStatusCode")) {
-        code = ex.getStatusCode() as int
-        String resp = ex.metaClass.respondsTo(ex, "getResponseBody") ? (ex.getResponseBody() ?: "") as String : ""
+    def httpEx = chain.find { it.metaClass.respondsTo(it, "getStatusCode") }
+    if (httpEx != null) {
+        code = httpEx.getStatusCode() as int
+        String resp = httpEx.metaClass.respondsTo(httpEx, "getResponseBody") ? (httpEx.getResponseBody() ?: "") as String : ""
         detail = "HTTP " + code + ": " + resp.take(300)
     }
 
@@ -1738,19 +1844,28 @@ def Message handleError(Message message) {
         // Falhou antes de ler o chamado: não há o que atualizar no ServiceNow
         throw new IllegalStateException("Erro antes de identificar o chamado: " + detail)
     }
+    String notSaved = messages.find { it.contains(WRITE_MARKER) }
+    if (notSaved) {
+        // O ServiceNow não está gravando os campos: tentar de novo só encheria o chamado de work notes.
+        throw new IllegalStateException(notSaved.substring(notSaved.indexOf(WRITE_MARKER)))
+    }
 
     boolean isTransient = (code in TRANSIENT_HTTP) ||
-                          detail.startsWith("TRANSIENT") ||
-                          ex instanceof java.net.SocketTimeoutException ||
-                          ex instanceof java.net.ConnectException ||
-                          (code == 0 && ex?.getCause() instanceof IOException)
+                          messages.any { it.startsWith("TRANSIENT") } ||
+                          chain.any { it instanceof java.net.SocketTimeoutException || it instanceof java.net.ConnectException ||
+                                      it instanceof java.util.concurrent.TimeoutException } ||
+                          (code == 0 && chain.any { it instanceof IOException })
+    // Import recusado: pode ser outro ciclo que chegou antes. O próximo ciclo confere a fila de novo.
+    boolean importRejected = prop(message, "NEXT") == "START_IMPORT" && (code in IMPORT_REJECTED_HTTP)
 
     int retries = (prop(message, "RETRIES") ?: "0") as int
     int maxRetries = (prop(message, "MAX_RETRIES") ?: "5") as int
 
-    if (isTransient && retries + 1 < maxRetries) {
+    if ((isTransient || importRejected) && retries + 1 < maxRetries) {
+        String what = importRejected ? "O cTMS recusou o import da request " + prop(message, "TR_ID") + "; a fila será conferida de novo"
+                                     : "Erro transitório no estado " + prop(message, "STATE")
         setUpdate(message, [u_cpi_retries: (retries + 1) as String],
-                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
+                  what + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
     } else {
         fail(message, "Erro no estado " + prop(message, "STATE") + ": " + detail)
     }
@@ -1892,6 +2007,11 @@ def Message parseTokenResponse(Message message) {
 import com.sap.gateway.ip.core.customdev.util.Message
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import groovy.transform.Field
+
+/** Marca do erro "o ServiceNow não gravou"; o IF_TRP_02 reconhece e não tenta gravar de novo. */
+@Field static final String WRITE_MARKER = "[TRP-GRAVACAO]"
+@Field static final List<String> JOURNAL_FIELDS = ["work_notes", "comments"]
 
 def Message prepareUpdate(Message message) {
     String body = message.getBody(String)
@@ -1905,6 +2025,8 @@ def Message prepareUpdate(Message message) {
     }
 
     message.setProperty("SYS_ID", req.sys_id as String)
+    // guarda o que foi enviado para conferir, na resposta, se o ServiceNow gravou mesmo
+    message.setProperty("UPD_SENT", JsonOutput.toJson(req.fields ?: [:]))
     message.setHeader("X-Trp-Snow-Token", "")
     message.setHeader("Authorization", "Bearer " + token)
     message.setHeader("Content-Type", "application/json")
@@ -1913,9 +2035,40 @@ def Message prepareUpdate(Message message) {
     return message
 }
 
+/**
+ * O ServiceNow responde 200 mesmo quando ignora um campo (coluna que não existe ou usuário sem
+ * permissão de escrita). Por isso a resposta é conferida: campo enviado tem que voltar preenchido,
+ * e o estado tem que voltar igual. Sem isso o chamado ficaria parado para sempre, sem erro nenhum.
+ */
 def Message finishUpdate(Message message) {
     message.setHeader("Authorization", "")
+    String body = message.getBody(String)
     message.setBody("")
+
+    def sent = new JsonSlurper().parseText(((message.getProperty("UPD_SENT") ?: "{}") as String))
+    def result = null
+    try {
+        result = body ? new JsonSlurper().parseText(body)?.result : null
+    } catch (Exception ignored) {
+        // resposta que não é JSON: não há como conferir
+    }
+    if (!(result instanceof Map) || !(sent instanceof Map)) return message
+
+    List<String> notSaved = []
+    sent.each { String field, Object value ->
+        if (field in JOURNAL_FIELDS) return                   // campos de diário voltam sempre vazios
+        String wanted = (value == null ? "" : value as String).trim()
+        if (!wanted) return
+        Object raw = result[field]
+        if (raw instanceof Map) raw = raw.value               // campo de referência
+        String got = (raw == null ? "" : raw as String).trim()
+        boolean ok = (field == "u_cpi_transport_status") ? (got == wanted) : (got != "")
+        if (!ok) notSaved << (field + " (enviado '" + wanted.take(40) + "', ficou '" + got.take(40) + "')")
+    }
+    if (notSaved) {
+        throw new IllegalStateException(WRITE_MARKER + " O ServiceNow respondeu 200 mas não gravou: " + notSaved.join(", ") +
+            ". Confira se a coluna existe em sc_req_item e se o usuário de integração tem permissão de escrita (ACL) nela.")
+    }
     return message
 }
 ```
@@ -1928,7 +2081,7 @@ def Message finishUpdate(Message message) {
  * iFlow: IF_TRP_99_ConnectionTest (temporário, só para testes)
  *
  * Testa o IF_TRP_03 (token do ServiceNow) e, se TEST_SYS_ID estiver preenchido,
- * o IF_TRP_04 (grava uma work note num chamado de teste).
+ * o IF_TRP_04 (grava uma work note e o campo u_cpi_message num chamado de teste).
  *
  * Funções:
  *   afterToken  -> depois da chamada ao /trp/snow-token
@@ -1972,7 +2125,9 @@ def Message afterToken(Message message) {
         message.setHeader("Content-Type", "application/json")
         message.setBody(JsonOutput.toJson([
             sys_id: sysId,
-            fields: [work_notes: "[Transporte CPI] Teste de conexão do CPI. Pode ignorar."]
+            // u_cpi_message vai junto para provar que as colunas u_cpi_* existem e aceitam gravação
+            fields: [work_notes   : "[Transporte CPI] Teste de conexão do CPI. Pode ignorar.",
+                     u_cpi_message: "Teste de conexão do CPI"]
         ]))
     } else {
         message.setBody("")
@@ -1982,7 +2137,7 @@ def Message afterToken(Message message) {
 
 def Message afterUpdate(Message message) {
     message.setHeader("X-Trp-Snow-Token", "")
-    logHeader(message, "TRP_UpdateTest", "OK - work note gravada no chamado de teste")
+    logHeader(message, "TRP_UpdateTest", "OK - work note e campo u_cpi_message gravados no chamado de teste")
     message.setBody("")
     return message
 }

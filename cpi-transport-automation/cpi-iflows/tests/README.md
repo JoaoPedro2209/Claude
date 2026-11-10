@@ -14,3 +14,7 @@ java -cp groovy-all-2.4.21.jar:build groovy.ui.GroovyMain ScriptsTest.groovy ../
 Saída esperada: `OK: <n> verificacoes passaram`.
 
 O que os testes cobrem: assinatura e campos do JWT, montagem da busca no ServiceNow, todas as mudanças de estado, prazos, contingência `MANUAL_TR`, checagem do deploy (versão e data), classificação de erros e os padrões dos parâmetros opcionais.
+
+## Teste do procedimento inteiro
+
+Estes testes cobrem só a lógica de cada função dos scripts. O procedimento completo (os cinco iFlows encadeados, com HTTP e JWT de verdade contra simuladores) é exercitado pelo laboratório em [`../lab/`](../lab/README.md).

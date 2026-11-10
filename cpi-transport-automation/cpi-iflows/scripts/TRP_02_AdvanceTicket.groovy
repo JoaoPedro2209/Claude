@@ -45,6 +45,10 @@ import java.text.SimpleDateFormat
 @Field static final String DEFAULT_QUEUE_PATH = "/v2/nodes/#NODE_ID#/transportRequests"
 @Field static final String DEFAULT_IMPORT_PATH = "/v2/nodes/#NODE_ID#/transportRequests/import"
 @Field static final String DEFAULT_ACTION_PATH = "/v2/actions/#ACTION_ID#"
+/** Marca do erro "o ServiceNow não gravou" lançado pelo IF_TRP_04 (TRP_04_SnowUpdate.groovy). */
+@Field static final String WRITE_MARKER = "[TRP-GRAVACAO]"
+/** Respostas do cTMS ao import que podem ser só corrida entre dois ciclos (request já em import). */
+@Field static final List<Integer> IMPORT_REJECTED_HTTP = [400, 404, 409, 412, 422, 423]
 
 // ---------------------------------------------------------------- utilitários
 
@@ -289,23 +293,44 @@ def Message evaluateExportStatus(Message message) {
 
 // ---------------------------------------------------------------- contingência (sem API de export)
 
+/** O número do chamado aparece na descrição como palavra inteira? (RITM0010011 não casa com RITM00100119) */
+boolean mentions(Object description, String ticket) {
+    if (!ticket) return false
+    String pattern = "(?<![A-Za-z0-9])" + java.util.regex.Pattern.quote(ticket) + "(?![A-Za-z0-9])"
+    return (((description ?: "") as String) =~ pattern).find()
+}
+
 def Message findTrByTicket(Message message) {
     def body = bodyJson(message)
     List list = (body instanceof List) ? body : ((body.transportRequests ?: []) as List)
     String ticket = prop(message, "NUMBER")
     List<String> importable = csvUpper(prop(message, "CTMS_IMPORTABLE_VALUES"), "INITIAL,IN,REPEATABLE,RE")
+    List<String> running = csvUpper(prop(message, "CTMS_RUNNING_VALUES"), "RUNNING,RU")
+    List<String> imported = csvUpper(prop(message, "CTMS_IMPORTED_VALUES"), "SUCCEEDED,SU")
+    List<String> broken = csvUpper(prop(message, "CTMS_ACTION_FAILED_VALUES"), "ERROR,ER,FATAL,FA")
 
-    List matches = list.findAll { tr ->
-        boolean sameTicket = (tr.description ?: "").toString().contains(ticket)
-        String status = ((tr.status ?: "") as String).toUpperCase()
-        sameTicket && (!status || status in importable)
-    }
+    Closure<String> statusOf = { tr -> ((tr.status ?: "") as String).toUpperCase() }
+    List mine = list.findAll { tr -> mentions(tr.description, ticket) }
+    List ready = mine.findAll { tr -> !statusOf(tr) || statusOf(tr) in importable }
     message.setBody("")
-    if (matches.size() > 1) {
+
+    if (ready.size() > 1) {
         fail(message, "Há mais de uma request importável na fila com " + ticket + " na descrição")
-    } else if (matches.size() == 1) {
-        message.setProperty("TR_ID", matches[0].id as String)
+    } else if (ready.size() == 1) {
+        message.setProperty("TR_ID", ready[0].id as String)
         message.setProperty("NEXT", "START_IMPORT")
+    } else if (mine.any { tr -> statusOf(tr) in running }) {
+        // import já em andamento (disparado por outro ciclo ou por alguém na tela do cTMS): espera
+    } else if (mine.any { tr -> statusOf(tr) in imported }) {
+        // A request já foi importada, mas o chamado não ficou sabendo (por exemplo, o ServiceNow
+        // estava fora do ar na hora de gravar). Segue direto para o deploy.
+        def done = mine.findAll { tr -> statusOf(tr) in imported }.max { tr -> (tr.id as String).isLong() ? (tr.id as long) : 0L }
+        message.setProperty("TR_ID", done.id as String)
+        message.setProperty("TR_RECOVERED", "true")
+        message.setProperty("NEXT", "START_DEPLOY")
+    } else if (mine.any { tr -> statusOf(tr) in broken }) {
+        def bad = mine.find { tr -> statusOf(tr) in broken }
+        fail(message, "A request " + bad.id + " do chamado está com status " + statusOf(bad) + " na fila do nó de QAS no cTMS.")
     }
     // nenhuma: o dev ainda não clicou em Transport; espera o próximo ciclo
     return message
@@ -355,22 +380,44 @@ def Message evaluateImport(Message message) {
 
 def Message handleDeployResponse(Message message) {
     message.setBody("")
-    moveTo(message, "DEPLOYING", [:], "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
+    Map extra = prop(message, "TR_ID") ? [u_cpi_tr_id: prop(message, "TR_ID")] : [:]
+    String recovered = prop(message, "TR_RECOVERED") == "true" ?
+        "A request " + prop(message, "TR_ID") + " já estava importada no cTMS. " : ""
+    moveTo(message, "DEPLOYING", extra, recovered + "Deploy do iFlow " + prop(message, "ARTIFACT_ID") + " disparado em QAS.")
     message.setProperty("NEXT", "")
     return message
 }
 
 def Message evaluateDeploy(Message message) {
+    String raw = message.getBody(String) ?: ""
+    def json = null
+    try {
+        json = raw.trim() ? new JsonSlurper().parseText(raw) : null
+    } catch (Exception ignored) {
+        // corpo que não é JSON (por exemplo XML, quando o header Accept não chegou)
+    }
     int code = (message.getHeaders().get("CamelHttpResponseCode") ?: 0) as int
+    if (code == 0) {
+        // O header com o código HTTP não está disponível: deduz pela resposta.
+        String err = (json instanceof Map && json.error) ? JsonOutput.toJson(json.error).toLowerCase() : ""
+        if (json instanceof Map && json.d instanceof Map) code = 200
+        else if (err.contains("not found") || err.contains("notfound")) code = 404
+    }
     if (code == 404) {               // ainda não apareceu no runtime
         message.setBody("")
         return message
     }
-    if (code != 200) {
-        String prefix = (code in TRANSIENT_HTTP) ? "TRANSIENT: " : ""
-        throw new IllegalStateException(prefix + "Consulta do runtime em QAS retornou HTTP " + code)
+    if (code == 200 && !(json instanceof Map && json.d instanceof Map)) {
+        throw new IllegalStateException("Consulta do runtime em QAS não devolveu JSON (confira o header Accept: application/json " +
+                                        "no Request Headers da chamada): " + raw.take(120))
     }
-    def d = bodyJson(message)?.d
+    if (code != 200) {
+        // sem código conhecido, trata como passageiro: as tentativas contam e o motivo fica registrado
+        String prefix = (code == 0 || code in TRANSIENT_HTTP) ? "TRANSIENT: " : ""
+        throw new IllegalStateException(prefix + "Consulta do runtime em QAS retornou HTTP " + (code ?: "desconhecido") +
+                                        (raw ? ": " + raw.take(200) : ""))
+    }
+    def d = json.d
     String status = ((d?.Status ?: "") as String).toUpperCase()
     String runtimeVersion = (d?.Version ?: "") as String
     String wanted = prop(message, "VERSION")
@@ -412,15 +459,29 @@ def Message buildUpdateRequest(Message message) {
 
 // ---------------------------------------------------------------- erros
 
+/** A exceção e as causas dela (o erro de um iFlow chamado pode chegar embrulhado em outra exceção). */
+List causeChain(Object ex) {
+    List chain = []
+    def cur = ex
+    while (cur != null && chain.size() < 10 && !chain.any { it.is(cur) }) {
+        chain << cur
+        cur = cur.getCause()
+    }
+    return chain
+}
+
 def Message handleError(Message message) {
     def ex = message.getProperty("CamelExceptionCaught")
+    List chain = causeChain(ex)
+    List<String> messages = chain.collect { (it.getMessage() ?: "") as String }.findAll { it }
     int code = 0
-    String detail = (ex?.getMessage() ?: "erro desconhecido") as String
+    String detail = messages ? messages[0] : (ex != null ? ex.toString() : "erro desconhecido")
 
     // Erro HTTP do adapter (a classe muda entre versões do runtime; testa pelo método)
-    if (ex != null && ex.metaClass.respondsTo(ex, "getStatusCode")) {
-        code = ex.getStatusCode() as int
-        String resp = ex.metaClass.respondsTo(ex, "getResponseBody") ? (ex.getResponseBody() ?: "") as String : ""
+    def httpEx = chain.find { it.metaClass.respondsTo(it, "getStatusCode") }
+    if (httpEx != null) {
+        code = httpEx.getStatusCode() as int
+        String resp = httpEx.metaClass.respondsTo(httpEx, "getResponseBody") ? (httpEx.getResponseBody() ?: "") as String : ""
         detail = "HTTP " + code + ": " + resp.take(300)
     }
 
@@ -430,19 +491,28 @@ def Message handleError(Message message) {
         // Falhou antes de ler o chamado: não há o que atualizar no ServiceNow
         throw new IllegalStateException("Erro antes de identificar o chamado: " + detail)
     }
+    String notSaved = messages.find { it.contains(WRITE_MARKER) }
+    if (notSaved) {
+        // O ServiceNow não está gravando os campos: tentar de novo só encheria o chamado de work notes.
+        throw new IllegalStateException(notSaved.substring(notSaved.indexOf(WRITE_MARKER)))
+    }
 
     boolean isTransient = (code in TRANSIENT_HTTP) ||
-                          detail.startsWith("TRANSIENT") ||
-                          ex instanceof java.net.SocketTimeoutException ||
-                          ex instanceof java.net.ConnectException ||
-                          (code == 0 && ex?.getCause() instanceof IOException)
+                          messages.any { it.startsWith("TRANSIENT") } ||
+                          chain.any { it instanceof java.net.SocketTimeoutException || it instanceof java.net.ConnectException ||
+                                      it instanceof java.util.concurrent.TimeoutException } ||
+                          (code == 0 && chain.any { it instanceof IOException })
+    // Import recusado: pode ser outro ciclo que chegou antes. O próximo ciclo confere a fila de novo.
+    boolean importRejected = prop(message, "NEXT") == "START_IMPORT" && (code in IMPORT_REJECTED_HTTP)
 
     int retries = (prop(message, "RETRIES") ?: "0") as int
     int maxRetries = (prop(message, "MAX_RETRIES") ?: "5") as int
 
-    if (isTransient && retries + 1 < maxRetries) {
+    if ((isTransient || importRejected) && retries + 1 < maxRetries) {
+        String what = importRejected ? "O cTMS recusou o import da request " + prop(message, "TR_ID") + "; a fila será conferida de novo"
+                                     : "Erro transitório no estado " + prop(message, "STATE")
         setUpdate(message, [u_cpi_retries: (retries + 1) as String],
-                  "Erro transitório no estado " + prop(message, "STATE") + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
+                  what + " (tentativa " + (retries + 1) + " de " + maxRetries + "): " + detail)
     } else {
         fail(message, "Erro no estado " + prop(message, "STATE") + ": " + detail)
     }

@@ -13,6 +13,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 
 /** Campos do sc_req_item que o IF_TRP_02 precisa. */
+@Field static final String DEFAULT_ACTIVE_STATES = "PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING"
 @Field static final List<String> FIELDS = [
     "sys_id", "number",
     "u_cpi_transport_status", "u_cpi_stage_since", "u_cpi_retries",
@@ -41,7 +42,7 @@ def Message prepareSearch(Message message) {
     if (!prop(message, "SNOW_CAT_ITEM_SYSID")) {
         throw new IllegalStateException("Parâmetro SNOW_CAT_ITEM_SYSID vazio")
     }
-    String states = prop(message, "ACTIVE_STATES") ?: "PENDING,EXPORTING,WAITING_TR,IMPORTING,DEPLOYING"
+    String states = prop(message, "ACTIVE_STATES") ?: DEFAULT_ACTIVE_STATES
     String encodedQuery = "cat_item=" + prop(message, "SNOW_CAT_ITEM_SYSID") +
                           "^u_cpi_transport_statusIN" + states.replace(" ", "") +
                           "^ORDERBYsys_created_on"
@@ -67,6 +68,16 @@ def Message ticketsToLines(Message message) {
     String body = message.getBody(String)
     def json = body ? new JsonSlurper().parseText(body) : [:]
     List result = (json.result ?: []) as List
+
+    // O ServiceNow IGNORA condições de filtro inválidas (coluna que não existe ou que o usuário não
+    // pode ler) e devolve a tabela inteira. Se voltou chamado fora dos estados pedidos, é isso.
+    List<String> states = (prop(message, "ACTIVE_STATES") ?: DEFAULT_ACTIVE_STATES).split(",").collect { it.trim() }
+    List outside = result.findAll { t -> !(((t.u_cpi_transport_status ?: "") as String) in states) }
+    if (outside) {
+        throw new IllegalStateException("O ServiceNow devolveu " + outside.size() + " de " + result.size() +
+            " chamados fora do filtro (ex.: " + (outside[0].number ?: "?") + "). O filtro foi ignorado: confira se a coluna " +
+            "u_cpi_transport_status existe em " + "sc_req_item e se o usuário de integração pode lê-la. Nada foi processado.")
+    }
 
     List<String> lines = result.collect { t ->
         Map ticket = [:]

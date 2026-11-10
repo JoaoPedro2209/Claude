@@ -104,7 +104,7 @@ O Hub de Arquitetura lista estilos de conexão com as APIs do ServiceNow. Esta s
 | --- | --- |
 | RT-01 | O SAP Automation Pilot só está disponível para a conta numa região da Europa |
 | RT-02 | O cTMS e os tenants CPI estão no Brasil |
-| RT-03 | A API de export do Content Agent precisa ser confirmada na documentação oficial (ver seção 17) |
+| RT-03 | A API de export do Content Agent precisa ser confirmada (ver seção 17). A documentação oficial já confirma que ela existe só no plano `application` com a role `Export`; falta o contrato (endpoints e corpo), que fica atrás de login no api.sap.com |
 
 ---
 
@@ -275,7 +275,7 @@ stateDiagram-v2
 | Origem → Destino | Mecanismo | Credencial | Armazenamento |
 | --- | --- | --- | --- |
 | CPI orquestração → ServiceNow | OAuth 2.0 JWT bearer (RS-01) | client_id + client_secret + chave privada | Chave: Keystore do CPI (D2-B) ou HSM (D2-A); client_id/secret: Security Material (User Credentials) |
-| CPI orquestração → Content Agent DEV | OAuth 2.0 client credentials | Service key `standard` dedicada | Security Material (OAuth2 Client Credentials) |
+| CPI orquestração → Content Agent DEV | OAuth 2.0 client credentials | Service key dedicada de uma instância `application` com a role `Export` (a API não existe no plano `standard`) | Security Material (OAuth2 Client Credentials) |
 | CPI orquestração → cTMS | OAuth 2.0 client credentials | Service key `standard` dedicada | Security Material |
 | CPI orquestração → CPI QAS | OAuth 2.0 client credentials | Instância `api` com `WorkspaceArtifactsDeploy` + `MonitoringDataRead` | Security Material |
 | Content Agent DEV → cTMS | Destination `TransportManagementService` | Key do cTMS + `sourceSystemId` | Destination BTP (DEV) |
@@ -337,7 +337,7 @@ Pacote `Z_TRANSPORTE_CPI` no tenant de orquestração:
 | --- | --- | --- |
 | `TRP_SNOW_CLIENT` | User Credentials | client_id / client_secret do cliente OAuth no ServiceNow |
 | `trp_snow_jwt` | Key pair (Keystore) | Chave privada + certificado do JWT (D2-B) |
-| `TRP_CAS_DEV` | OAuth2 Client Credentials | Key `standard` do Content Agent DEV |
+| `TRP_CAS_DEV` | OAuth2 Client Credentials | Key da instância `application` (role `Export`) do Content Agent DEV |
 | `TRP_CTMS` | OAuth2 Client Credentials | Key do cTMS dedicada |
 | `TRP_CPI_QAS` | OAuth2 Client Credentials | Instância `api` de deploy em QAS |
 

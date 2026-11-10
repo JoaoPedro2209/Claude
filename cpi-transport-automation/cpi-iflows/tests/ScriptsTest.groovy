@@ -72,6 +72,8 @@ check(P(m, "TICKET_COUNT") == "2" && B(m).split("\n").size() == 2 && H(m, "Autho
 m.setBody(B(m).split("\n")[0]); s1.lineToRequest(m)
 check(H(m, "X-Trp-Snow-Token") == "TOK" && H(m, "SAP_ApplicationID") == "RITM001" && J(B(m)).u_cpi_artifact_id == "IF_A", "lineToRequest")
 def m0 = msg([:], [:], '{"result":[]}'); s1.ticketsToLines(m0); check(P(m0, "TICKET_COUNT") == "0", "nenhum chamado")
+// ServiceNow ignorou o filtro (coluna inexistente): voltam chamados sem estado ou já encerrados
+try { s1.ticketsToLines(msg([:], [:], '{"result":[{"sys_id":"a1","number":"RITM001","u_cpi_transport_status":"PENDING"},{"sys_id":"a2","number":"RITM002","u_cpi_transport_status":""}]}')); check(false, "filtro ignorado deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("fora do filtro") && e.message.contains("RITM002"), "filtro ignorado pelo ServiceNow é acusado") }
 
 // ================================================================ TRP_02
 def s2 = load("TRP_02_AdvanceTicket.groovy")
@@ -134,6 +136,14 @@ check(P(m, "TR_ID") == "12", "ignora request já importada com o mesmo chamado")
 m = queue('{"transportRequests":[{"id":11,"description":"outro"}]}'); check(P(m, "NEXT") == "" && P(m, "UPDATE") == "false", "sem request: espera")
 m = queue('{"transportRequests":[{"id":1,"status":"in","description":"RITM001"},{"id":2,"status":"in","description":"RITM001 de novo"}]}')
 check(fields(m).u_cpi_transport_status == "FAILED", "duas requests com o mesmo chamado -> FAILED")
+m = queue('{"transportRequests":[{"id":21,"status":"initial","description":"RITM0019 de outro chamado"},{"id":22,"status":"initial","description":"xRITM001"}]}')
+check(P(m, "NEXT") == "" && P(m, "UPDATE") == "false", "número parecido não é confundido com o do chamado")
+m = queue('{"transportRequests":[{"id":23,"status":"initial","description":"[RITM001] ajuste"}]}'); check(P(m, "TR_ID") == "23", "número entre colchetes casa")
+m = queue('{"transportRequests":[{"id":24,"status":"running","description":"RITM001"}]}'); check(P(m, "NEXT") == "" && P(m, "UPDATE") == "false", "request em import: espera")
+m = queue('{"transportRequests":[{"id":25,"status":"SU","description":"RITM001"}]}')
+check(P(m, "NEXT") == "START_DEPLOY" && P(m, "TR_ID") == "25" && P(m, "TR_RECOVERED") == "true", "request já importada: segue para o deploy")
+s2.handleDeployResponse(m); check(fields(m).u_cpi_transport_status == "DEPLOYING" && fields(m).u_cpi_tr_id == "25" && P(m, "UPD_NOTE").contains("já estava importada"), "deploy recuperado grava a request")
+m = queue('{"transportRequests":[{"id":26,"status":"error","description":"RITM001"}]}'); check(fields(m).u_cpi_transport_status == "FAILED" && fields(m).u_cpi_message.contains("26"), "request com erro na fila -> FAILED")
 m = queue('[{"id":"abc","description":"RITM001"}]'); s2.buildImportRequest(m); check(J(B(m)).transportRequests == ["abc"], "ID não numérico e resposta em lista")
 
 // IMPORTING
@@ -178,6 +188,13 @@ m.setBody('{"actionId":9}'); s2.handleImportResponse(m); check(fields(m).u_cpi_a
 try { s2.prepare(msg([EXPORT_MODE: "MANUAL_TR"], ["X-Trp-Snow-Token": "TOK"], ticket([u_cpi_transport_status: "PENDING"]))); check(false, "sem CTMS_URI deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("CTMS_URI"), "configuração mínima cobrada") }
 m = msg([:], ["X-Trp-Snow-Token": "TOK"], ticket([u_cpi_transport_status: "FAILED"])); s2.prepare(m); check(P(m, "ROUTE") == "DONE", "estado final não cobra configuração")
 
+// Sem o header CamelHttpResponseCode: o resultado é deduzido pela resposta
+def depNoCode = { String body -> def mm = start([u_cpi_transport_status: "DEPLOYING", u_cpi_stage_since: ago(1)]); mm.setBody(body); mm }
+m = depNoCode(rt("STARTED", "1.0.3", nowMs)); s2.evaluateDeploy(m); check(fields(m).u_cpi_transport_status == "SUCCESS", "sem código HTTP: 200 deduzido pelo corpo")
+m = depNoCode('{"error":{"code":"Not Found","message":{"lang":"en","value":"x"}}}'); s2.evaluateDeploy(m); check(P(m, "UPDATE") == "false", "sem código HTTP: 404 deduzido pelo corpo")
+try { s2.evaluateDeploy(depNoCode('{"error":"unauthorized"}')); check(false, "resposta desconhecida deveria lançar") } catch (IllegalStateException e) { check(e.message.startsWith("TRANSIENT") && e.message.contains("unauthorized"), "sem código HTTP e resposta estranha: passageiro, com o motivo") }
+try { s2.evaluateDeploy(dep(200, "<entry/>")); check(false, "XML deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("Accept"), "resposta em XML aponta o header Accept") }
+
 // Estado final e pedido de atualização
 m = start([u_cpi_transport_status: "SUCCESS"]); check(P(m, "ROUTE") == "DONE" && P(m, "UPDATE") == "false", "estado final: nada a fazer")
 m = dep(200, rt("STARTED", "1.0.3", nowMs)); s2.buildUpdateRequest(m)
@@ -193,6 +210,13 @@ r = err([u_cpi_transport_status: "IMPORTING", u_cpi_retries: "4", u_cpi_stage_si
 check(r.fields.u_cpi_transport_status == "FAILED", "tentativas esgotadas -> FAILED")
 r = err([u_cpi_transport_status: "PENDING"], new FakeHttpEx(400, "bad pkg")); check(r.fields.u_cpi_transport_status == "FAILED" && r.fields.u_cpi_message.contains("400"), "400 -> FAILED")
 r = err([u_cpi_transport_status: "DEPLOYING", u_cpi_stage_since: ago(1)], new RuntimeException("x", new java.net.SocketTimeoutException("t"))); check(r.fields.u_cpi_retries == "1", "timeout de rede é transitório")
+r = err([u_cpi_transport_status: "IMPORTING", u_cpi_retries: "0", u_cpi_stage_since: ago(2)], new RuntimeException("erro no iFlow chamado", new FakeHttpEx(503, "busy")))
+check(r.fields.u_cpi_retries == "1" && r.fields.work_notes.contains("HTTP 503"), "erro HTTP embrulhado em outra exceção é reconhecido")
+def rej = start([u_cpi_transport_status: "WAITING_TR", u_cpi_stage_since: ago(2)]); rej.setProperty("NEXT", "START_IMPORT"); rej.setProperty("TR_ID", "12")
+rej.setProperty("CamelExceptionCaught", new FakeHttpEx(400, "not importable")); s2.handleError(rej); r = J(B(rej))
+check(r.fields.u_cpi_retries == "1" && !r.fields.u_cpi_transport_status && r.fields.work_notes.contains("recusou o import da request 12"), "import recusado: confere a fila no próximo ciclo")
+def ns = start([u_cpi_transport_status: "PENDING"]); ns.setProperty("CamelExceptionCaught", new RuntimeException("embrulho", new IllegalStateException("[TRP-GRAVACAO] O ServiceNow respondeu 200 mas não gravou: x")))
+try { s2.handleError(ns); check(false, "campo não gravado deveria lançar") } catch (IllegalStateException e) { check(e.message.startsWith("[TRP-GRAVACAO]"), "campo não gravado: falha sem nova tentativa de gravação") }
 def me = msg(cfg, [:], ""); me.setProperty("CamelExceptionCaught", new IllegalStateException("Token do ServiceNow ausente"))
 try { s2.handleError(me); check(false, "sem chamado deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("antes de identificar"), "erro antes de ler o chamado não tenta atualizar") }
 try { s2.prepare(msg(cfg, [:], ticket([u_cpi_transport_status: "PENDING"]))); check(false, "sem token deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("X-Trp-Snow-Token"), "token ausente") }
@@ -201,7 +225,12 @@ try { s2.prepare(msg(cfg, [:], ticket([u_cpi_transport_status: "PENDING"]))); ch
 def s4 = load("TRP_04_SnowUpdate.groovy")
 m = msg([:], ["X-Trp-Snow-Token": "TOK"], '{"sys_id":"a1","fields":{"u_cpi_transport_status":"SUCCESS"}}'); s4.prepareUpdate(m)
 check(P(m, "SYS_ID") == "a1" && H(m, "Authorization") == "Bearer TOK" && H(m, "X-Trp-Snow-Token") == "" && B(m) == '{"u_cpi_transport_status":"SUCCESS"}', "prepareUpdate")
-m.setBody('{"result":{"sys_id":"a1"}}'); s4.finishUpdate(m); check(B(m) == "" && H(m, "Authorization") == "", "finishUpdate limpa corpo e Authorization")
+m.setBody('{"result":{"sys_id":"a1","u_cpi_transport_status":"SUCCESS","work_notes":""}}'); s4.finishUpdate(m); check(B(m) == "" && H(m, "Authorization") == "", "finishUpdate limpa corpo e Authorization")
+def upd4 = { String sent, String resp -> def mm = msg([:], ["X-Trp-Snow-Token": "TOK"], '{"sys_id":"a1","fields":' + sent + '}'); s4.prepareUpdate(mm); mm.setBody(resp); s4.finishUpdate(mm); mm }
+try { upd4('{"u_cpi_transport_status":"WAITING_TR","work_notes":"n"}', '{"result":{"sys_id":"a1","u_cpi_transport_status":"PENDING","work_notes":""}}'); check(false, "estado não gravado deveria lançar") } catch (IllegalStateException e) { check(e.message.startsWith("[TRP-GRAVACAO]") && e.message.contains("u_cpi_transport_status"), "estado ignorado pelo ServiceNow é acusado") }
+try { upd4('{"u_cpi_message":"teste"}', '{"result":{"sys_id":"a1"}}'); check(false, "coluna inexistente deveria lançar") } catch (IllegalStateException e) { check(e.message.contains("u_cpi_message"), "coluna inexistente é acusada") }
+upd4('{"work_notes":"só nota","u_cpi_retries":"0","u_cpi_message":"texto bem longo"}', '{"result":{"sys_id":"a1","work_notes":"","u_cpi_retries":"0","u_cpi_message":"texto bem"}}'); check(true, "work note vazia na resposta e texto truncado não são erro")
+upd4('{"u_cpi_transport_status":"SUCCESS"}', 'resposta que não é JSON'); check(true, "resposta que não é JSON não derruba")
 try { s4.prepareUpdate(msg([:], ["X-Trp-Snow-Token": "TOK"], '{"fields":{}}')); check(false, "sem sys_id deveria lançar") } catch (IllegalStateException e) { check(true, "exige sys_id") }
 
 // ================================================================ TRP_99
@@ -209,7 +238,7 @@ def s9 = load("TRP_99_ConnectionTest.groovy")
 m = msg([TEST_SYS_ID: "-"], [:], '{"access_token":"TOK","expires_in":1799}'); s9.afterToken(m)
 check(P(m, "DO_UPDATE") == "false" && B(m) == "", "teste só do token")
 m = msg([TEST_SYS_ID: "a9"], [:], '{"access_token":"TOK","expires_in":1799}'); s9.afterToken(m)
-check(P(m, "DO_UPDATE") == "true" && J(B(m)).sys_id == "a9" && H(m, "X-Trp-Snow-Token") == "TOK", "teste com atualização")
+check(P(m, "DO_UPDATE") == "true" && J(B(m)).sys_id == "a9" && H(m, "X-Trp-Snow-Token") == "TOK" && J(B(m)).fields.u_cpi_message, "teste com atualização")
 s9.afterUpdate(m); check(H(m, "X-Trp-Snow-Token") == "" && B(m) == "", "afterUpdate limpa o token")
 
 println "OK: " + ok + " verificacoes passaram"

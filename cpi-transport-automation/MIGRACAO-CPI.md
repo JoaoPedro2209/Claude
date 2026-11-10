@@ -123,7 +123,8 @@ Como Global Account Administrator, em cada subaccount: **Entitlements → Edit �
 
 | Subaccount | Serviço | Plano | Uso |
 | --- | --- | --- | --- |
-| DEV | Content Agent Service | `standard` (instância) | Montagem e export |
+| DEV | Content Agent Service | `standard` (instância) | Montagem e export pela tela |
+| DEV | Content Agent Service | `application`, role `Export` (segunda instância) | Export por API (automação sem clique) |
 | DEV | Content Agent | Plano de assinatura disponível na sua conta (nos laboratórios da SAP aparece `free`) | Interface web do Content Agent |
 | DEV | Process Integration Runtime | `api` | Destination `CloudIntegration` de origem |
 | QAS | Content Agent Service | `application` | Receber o import |
@@ -175,13 +176,13 @@ Esta fase decide o resto. Não mexe em nada do ambiente.
 
 ### 6.1 Onde procurar
 
-1. Com o seu login, abra no help.sap.com o guia do **SAP Content Agent Service → Consuming APIs**.
+1. Com o seu login, abra no help.sap.com o guia do **SAP Content Agent Service → Consuming APIs**. O que essa página já confirma: a API existe, só no plano `application`. O contrato (endpoints e corpo) está no item 2.
 2. No **SAP Business Accelerator Hub** (api.sap.com), procure "Content Agent".
 3. Anote, se existir: URL base (de qual campo da service key ela sai), autenticação, endpoint que cria o export, corpo de exemplo, endpoint de status e o campo da resposta que traz o ID da transport request.
 
 ### 6.2 Teste de bancada (depois de criar a instância da 7.2)
 
-Com a key `standard` do Content Agent DEV, no Postman:
+A documentação oficial do Content Agent ("Consuming APIs" e "Create Instance") diz que as APIs só existem no plano **`application`**, com a role **Export**. A instância `standard` da 7.2 atende a tela e o botão Transport, não a API. Para este teste, crie no subaccount DEV uma segunda instância do Content Agent, plano `application`, role `Export` (nome sugerido `cas-app-dev`), com uma service key. Com essa key, no Postman:
 
 1. Pegue o token: `POST {uaa.url}/oauth/token` com `grant_type=client_credentials`.
 2. Chame o endpoint de export documentado, com um pacote de teste e a descrição `TESTE-API`.

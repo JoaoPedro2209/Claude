@@ -3,7 +3,7 @@
  * iFlow: IF_TRP_99_ConnectionTest (temporário, só para testes)
  *
  * Testa o IF_TRP_03 (token do ServiceNow) e, se TEST_SYS_ID estiver preenchido,
- * o IF_TRP_04 (grava uma work note num chamado de teste).
+ * o IF_TRP_04 (grava uma work note e o campo u_cpi_message num chamado de teste).
  *
  * Funções:
  *   afterToken  -> depois da chamada ao /trp/snow-token
@@ -47,7 +47,9 @@ def Message afterToken(Message message) {
         message.setHeader("Content-Type", "application/json")
         message.setBody(JsonOutput.toJson([
             sys_id: sysId,
-            fields: [work_notes: "[Transporte CPI] Teste de conexão do CPI. Pode ignorar."]
+            // u_cpi_message vai junto para provar que as colunas u_cpi_* existem e aceitam gravação
+            fields: [work_notes   : "[Transporte CPI] Teste de conexão do CPI. Pode ignorar.",
+                     u_cpi_message: "Teste de conexão do CPI"]
         ]))
     } else {
         message.setBody("")
@@ -57,7 +59,7 @@ def Message afterToken(Message message) {
 
 def Message afterUpdate(Message message) {
     message.setHeader("X-Trp-Snow-Token", "")
-    logHeader(message, "TRP_UpdateTest", "OK - work note gravada no chamado de teste")
+    logHeader(message, "TRP_UpdateTest", "OK - work note e campo u_cpi_message gravados no chamado de teste")
     message.setBody("")
     return message
 }
