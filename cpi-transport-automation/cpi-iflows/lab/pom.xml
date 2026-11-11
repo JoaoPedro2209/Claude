@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Só serve para baixar as bibliotecas do laboratório (mvn dependency:copy-dependencies).
+  O Apache Camel 3.14 é a base do runtime do SAP Cloud Integration; o Groovy 2.4 é o
+  mesmo dos passos de Script.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>lab.trp</groupId>
+  <artifactId>cpi-transport-lab</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+  <properties>
+    <camel.version>3.14.10</camel.version>
+  </properties>
+  <dependencies>
+    <dependency><groupId>org.apache.camel</groupId><artifactId>camel-core-engine</artifactId><version>${camel.version}</version></dependency>
+    <dependency><groupId>org.apache.camel</groupId><artifactId>camel-core-languages</artifactId><version>${camel.version}</version></dependency>
+    <dependency><groupId>org.apache.camel</groupId><artifactId>camel-direct</artifactId><version>${camel.version}</version></dependency>
+    <dependency><groupId>org.apache.camel</groupId><artifactId>camel-ahc</artifactId><version>${camel.version}</version></dependency>
+    <dependency><groupId>org.codehaus.groovy</groupId><artifactId>groovy-all</artifactId><version>2.4.21</version></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-nop</artifactId><version>1.7.36</version></dependency>
+  </dependencies>
+</project>

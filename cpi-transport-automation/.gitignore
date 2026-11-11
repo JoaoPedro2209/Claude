@@ -1,0 +1,4 @@
+# Nunca versionar credenciais preenchidas
+*.local.json
+*service-key*.json
+.env
